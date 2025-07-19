@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.bxt.picturebackend.mapper.UserMapper">
+
+    <resultMap id="BaseResultMap" type="com.bxt.picturebackend.model.entity.User">
+            <id property="id" column="id" />
+            <result property="userAccount" column="userAccount" />
+            <result property="password" column="password" />
+            <result property="userName" column="userName" />
+            <result property="userAvatar" column="userAvatar" />
+            <result property="userProfile" column="userProfile" />
+            <result property="userRole" column="userRole" />
+            <result property="userStatus" column="userStatus" />
+            <result property="restrictedExpireTime" column="restrictedExpireTime" />
+            <result property="isVip" column="isVip" />
+            <result property="vipExpireTime" column="vipExpireTime" />
+            <result property="vipCode" column="vipCode" />
+            <result property="editTime" column="editTime" />
+            <result property="createTime" column="createTime" />
+            <result property="updateTime" column="updateTime" />
+            <result property="isDeleted" column="isDeleted" />
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id,userAccount,password,userName,userAvatar,userProfile,
+        userRole,userStatus,restrictedExpireTime,isVip,vipExpireTime,
+        vipCode,editTime,createTime,updateTime,isDeleted
+    </sql>
+</mapper>
