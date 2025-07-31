@@ -4,40 +4,52 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+
+import java.io.Serializable;
+import java.util.Date;
 import lombok.Data;
 
-import java.util.Date;
-
 /**
- * 
- * @TableName user_follow
+ * 图片评论
+ * @TableName pictureComment
  */
-@TableName(value ="userFollow")
+@TableName(value ="pictureComment")
 @Data
-public class UserFollow {
+public class Picturecomment implements Serializable {
+    private static final long serialVersionUID = -3247520595143799866L;
     /**
-     * 主键ID
+     * id
      */
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
 
     /**
-     * 发起关注的用户ID
+     * 用户 id
      */
     private Long userId;
 
     /**
-     * 被关注的用户ID
+     * 图片 id
      */
-    private Long followUserId;
+    private Long pictureId;
 
     /**
-     * 关注时间
+     * 评论内容
+     */
+    private String content;
+
+    /**
+     * 父评论 id（用于回复）
+     */
+    private Long parentId;
+
+    /**
+     * 创建时间
      */
     private Date createTime;
 
     /**
-     * 逻辑删除（0-未删除，1-取消关注）
+     * 是否删除
      */
     @TableLogic
     private Integer isDeleted;

@@ -19,6 +19,11 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: 12345678
+  profiles:
+    active: local  # 设置当前激活的配置文件为 local
+  servlet:
+    multipart:
+      max-file-size: 10MB  # 设置上传文件的最大大小
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false

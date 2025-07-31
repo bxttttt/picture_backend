@@ -46,3 +46,92 @@ CREATE TABLE userFollow (
 
                              UNIQUE KEY uq_user_follow (userId, followUserId)
 );
+-- 图片表
+create table if not exists picture
+(
+    id           bigint auto_increment comment 'id' primary key,
+    url          varchar(512)                       not null comment '图片 url',
+    name         varchar(128)                       not null comment '图片名称',
+    introduction varchar(512)                       null comment '简介',
+    category     varchar(64)                        null comment '分类',
+    tags         varchar(512)                      null comment '标签（JSON 数组）',
+    picSize      bigint                             null comment '图片体积',
+    picWidth     int                                null comment '图片宽度',
+    picHeight    int                                null comment '图片高度',
+    picScale     double                             null comment '图片宽高比例',
+    picFormat    varchar(32)                        null comment '图片格式',
+    userId       bigint                             not null comment '创建用户 id',
+    createTime   datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    editTime     datetime default CURRENT_TIMESTAMP not null comment '编辑时间',
+    updateTime   datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+    isDeleted     tinyint  default 0                 not null comment '是否删除',
+    INDEX idx_name (name),                 -- 提升基于图片名称的查询性能
+    INDEX idx_introduction (introduction), -- 用于模糊搜索图片简介
+    INDEX idx_category (category),         -- 提升基于分类的查询性能
+    INDEX idx_tags (tags),                 -- 提升基于标签的查询性能
+    INDEX idx_userId (userId)              -- 提升基于用户 ID 的查询性能
+) comment '图片' collate = utf8mb4_unicode_ci;
+create table if not exists pictureLike
+(
+    id         bigint auto_increment comment 'id' primary key,
+    userId     bigint not null comment '用户 id',
+    pictureId  bigint not null comment '图片 id',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    isDeleted   tinyint  default 0                 not null comment '是否删除',
+    UNIQUE KEY uq_user_picture (userId, pictureId), -- 确保每个用户对每张图片只能点赞一次
+    INDEX idx_userId (userId),             -- 提升基于用户 ID 的查询性能
+    INDEX idx_pictureId (pictureId)        -- 提升基于图片 ID 的查询性能
+) comment '图片点赞' collate = utf8mb4_unicode_ci;
+create table if not exists pictureComment
+(
+    id         bigint auto_increment comment 'id' primary key,
+    userId     bigint not null comment '用户 id',
+    pictureId  bigint not null comment '图片 id',
+    content    text not null comment '评论内容',
+    parentId   bigint null comment '父评论 id（用于回复）',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    isDeleted   tinyint  default 0                 not null comment '是否删除',
+    INDEX idx_userId (userId),             -- 提升基于用户 ID 的查询性能
+    INDEX idx_pictureId (pictureId),       -- 提升基于图片 ID 的查询性能
+    INDEX idx_parentId (parentId)          -- 提升基于父评论 ID 的查询性能
+) comment '图片评论' collate = utf8mb4_unicode_ci;
+create table if not exists pictureCollection
+(
+    id         bigint auto_increment comment 'id' primary key,
+    userId     bigint not null comment '用户 id',
+    pictureId  bigint not null comment '图片 id',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    isDeleted   tinyint  default 0                 not null comment '是否删除',
+    UNIQUE KEY uq_user_picture (userId, pictureId), -- 确保每个用户对每张图片只能收藏一次
+    INDEX idx_userId (userId),             -- 提升基于用户 ID 的查询性能
+    INDEX idx_pictureId (pictureId)        -- 提升基于图片 ID 的查询性能
+) comment '图片收藏' collate = utf8mb4_unicode_ci;
+create table if not exists pictureReport
+(
+    id         bigint auto_increment comment 'id' primary key,
+    userId     bigint not null comment '用户 id',
+    pictureId  bigint not null comment '图片 id',
+    reason     varchar(512) not null comment '举报理由',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    isDeleted   tinyint  default 0                 not null comment '是否删除',
+    INDEX idx_userId (userId),             -- 提升基于用户 ID 的查询性能
+    INDEX idx_pictureId (pictureId)        -- 提升基于图片 ID 的查询性能
+) comment '图片举报' collate = utf8mb4_unicode_ci;
+create table if not exists pictureNotInterest
+(
+    id         bigint auto_increment comment 'id' primary key,
+    userId     bigint not null comment '用户 id',
+    pictureId  bigint not null comment '图片 id',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    isDeleted   tinyint  default 0                 not null comment '是否删除',
+    UNIQUE KEY uq_user_picture (userId, pictureId), -- 确保每个用户对每张图片只能标记一次不感兴趣
+    INDEX idx_userId (userId),             -- 提升基于用户 ID 的查询性能
+    INDEX idx_pictureId (pictureId)        -- 提升基于图片 ID 的查询性能
+) comment '图片不感兴趣' collate = utf8mb4_unicode_ci;
+
+alter table picture
+    add column reviewStatus tinyint default 0 not null comment '审核状态（0-待审核，1-审核通过，2-审核不通过）',
+    add column reviewReason varchar(512) null comment '审核通过/不通过原因',
+    add column reviewTime datetime null comment '审核时间',
+    add column reviewUserId bigint null comment '审核用户 ID（审核通过/不通过的管理员）';
+create index idx_reviewStatue on picture (reviewStatus);

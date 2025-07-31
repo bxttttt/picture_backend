@@ -11,4 +11,5 @@ import com.bxt.picturebackend.model.entity.UserBlacklist;
 */
 public interface UserBlacklistService extends IService<UserBlacklist> {
 
+
 }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.bxt.picturebackend.mapper.PicturelikeMapper">
+
+    <resultMap id="BaseResultMap" type="com.bxt.picturebackend.model.entity.Picturelike">
+            <id property="id" column="id" />
+            <result property="userId" column="userId" />
+            <result property="pictureId" column="pictureId" />
+            <result property="createTime" column="createTime" />
+            <result property="isDeleted" column="isDeleted" />
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id,userId,pictureId,createTime,isDeleted
+    </sql>
+</mapper>
