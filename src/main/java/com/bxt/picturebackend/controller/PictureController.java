@@ -6,6 +6,7 @@ import com.bxt.picturebackend.annotation.AuthCheck;
 import com.bxt.picturebackend.common.BaseResponse;
 import com.bxt.picturebackend.common.ResultUtils;
 import com.bxt.picturebackend.constant.UserConstant;
+import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.dto.picture.*;
 import com.bxt.picturebackend.exception.BusinessException;
 import com.bxt.picturebackend.exception.ErrorCode;
@@ -24,10 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 @RestController
 @Slf4j
@@ -155,4 +153,25 @@ public class PictureController {
         boolean result = pictureService.doPictureReview(pictureReviewRequest, loginUser.getId());
         return ResultUtils.success(result);
     }
+    @PostMapping("/admin/picture/autoFetch")
+    @AuthCheck(mustRole = UserConstant.ROLE_ADMIN)
+    public BaseResponse<List<PictureVo>> autoFetchPictures(@RequestParam String keyword,
+                                                                     @RequestParam(defaultValue = "10") int count,
+                                                                     @RequestParam(defaultValue = "admin/fetch") String uploadPathPrefix,HttpServletRequest httpServletRequest) {
+        List<String> imgUrls = pictureService.getImageUrlsFromBaidu(keyword, count);
+        List<PictureVo> results = new ArrayList<>();
+        UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
+        for (String imgUrl : imgUrls) {
+            System.out.println(imgUrl);
+            try{
+                PictureUploadRequest pictureUploadRequest=new PictureUploadRequest();
+                pictureUploadRequest.setFileUrl(imgUrl);
+                PictureVo uploadPictureResult=pictureService.uploadPicture(pictureUploadRequest, userService.getById(loginUser.getId()));
+            }catch (Exception e){
+                log.error("图片上传失败,图片地址:{}",imgUrl,e);
+            }
+        }
+        return ResultUtils.success(results);
+    }
+
 }

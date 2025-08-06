@@ -2,6 +2,7 @@ package com.bxt.picturebackend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.dto.picture.PictureQueryRequest;
 import com.bxt.picturebackend.dto.picture.PictureReviewRequest;
 import com.bxt.picturebackend.dto.picture.PictureUploadRequest;
@@ -12,6 +13,8 @@ import com.bxt.picturebackend.vo.PictureVo;
 import com.bxt.picturebackend.vo.UserLoginVo;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 /**
 * @author bxt
@@ -35,4 +38,8 @@ public interface PictureService extends IService<Picture> {
     void validPicture(Picture picture);
 
     boolean doPictureReview(PictureReviewRequest pictureReviewRequest, Long reviewerId);
+
+    List<UploadPictureResult> fetchPicturesFromBaidu(String keyword, int count, String uploadPathPrefix);
+
+    List<String> getImageUrlsFromBaidu(String keyword, int count);
 }

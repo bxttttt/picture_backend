@@ -1,9 +1,20 @@
 package com.bxt.picturebackend.service.impl;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.core.util.URLUtil;
+import cn.hutool.http.HtmlUtil;
+import cn.hutool.http.HttpRequest;
+import cn.hutool.http.HttpResponse;
+import cn.hutool.http.HttpUtil;
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -23,6 +34,7 @@ import com.bxt.picturebackend.service.UserService;
 import com.bxt.picturebackend.vo.PictureVo;
 import com.bxt.picturebackend.vo.UserLoginVo;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -36,6 +48,7 @@ import org.springframework.web.multipart.MultipartFile;
 * @createDate 2025-07-21 17:11:40
 */
 @Service
+@Slf4j
 public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     implements PictureService{
     @Autowired
@@ -275,10 +288,98 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         ThrowUtils.throwIf(!updateResult, ErrorCode.SYSTEM_ERROR, "图片审核失败");
         return updateResult;
     }
+    @Override
+    public List<UploadPictureResult> fetchPicturesFromBaidu(String keyword, int count, String uploadPathPrefix) {
+        List<String> imageUrls = new ArrayList<>();
 
+        int pageSize = 30;
+        int pages = (int) Math.ceil((double) count / pageSize);
+        for (int page = 0; page < pages; page++) {
+            int pn = page * pageSize;
+            String url = StrUtil.format("https://image.baidu.com/search/acjson?tn=result&word={}&pn={}&rn={}",
+                    URLUtil.encode(keyword), pn, pageSize);
 
+            try {
+                String response = HttpUtil.get(url);
+                System.out.println(url);
+//                System.out.println(response);
+                String cleaned = HtmlUtil.unescape(response);
+                JSONObject json = JSONUtil.parseObj(cleaned);
+                JSONArray data = json.getJSONArray("data");
+                System.out.println("data:"+data);
+                if (data != null) {
+                    for (int i = 0; i < data.size() && imageUrls.size() < count; i++) {
+                        JSONObject item = data.getJSONObject(i);
+                        String imageUrl = item.getStr("thumbURL");
+                        if (StrUtil.isNotBlank(imageUrl)) {
+                            imageUrls.add(imageUrl);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("抓取百度图片失败", e);
+            }
+        }
+
+        // 上传到 COS
+        List<UploadPictureResult> resultList = new ArrayList<>();
+        for (String imgUrl : imageUrls) {
+            try {
+                UploadPictureResult result = fileManager.uploadPicture(imgUrl, uploadPathPrefix);
+                resultList.add(result);
+            } catch (Exception e) {
+                log.warn("上传失败");
+            }
+        }
+
+        return resultList;
+    }
+    @Override
+    public List<String> getImageUrlsFromBaidu(String keyword, int count) {
+        List<String> imageUrls = new ArrayList<>();
+        int pageSize = 30;
+        int pages = (int) Math.ceil((double) count / pageSize);
+
+        for (int page = 0; page < pages; page++) {
+            int pn = page * pageSize;
+            String apiUrl = String.format("https://image.baidu.com/search/acjson?tn=result&word=%s&pn=%d&rn=%d",
+                    URLUtil.encode(keyword), pn, pageSize);
+
+            try {
+                HttpResponse response = HttpRequest.get(apiUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0.0.0 Safari/537.36")
+                        .timeout(5000)
+                        .execute();
+
+                String body = response.body();
+
+                // 正则提取 thumbURL
+                Pattern pattern = Pattern.compile("\"thumbURL\":\"(.*?)\"");
+                Matcher matcher = pattern.matcher(body);
+                
+                while (matcher.find() && imageUrls.size() < count) {
+                    String imgUrl = matcher.group(1).replaceAll("\\\\", "");
+                    imageUrls.add(imgUrl);
+                }
+
+            } catch (Exception e) {
+                log.error("抓取百度图片失败: {}", apiUrl, e);
+            }
+
+            // 如果已经抓够了
+            if (imageUrls.size() >= count) {
+                break;
+            }
+        }
+
+        return imageUrls;
+    }
 
 }
+
+
+
+
 
 
 
