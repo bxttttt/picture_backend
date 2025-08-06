@@ -52,7 +52,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
 
         Long pictureId=null;
-        if (pictureUploadRequest!=null){
+        if (pictureUploadRequest.getId()!=null){
             pictureId = pictureUploadRequest.getId();
             boolean exists = this.lambdaQuery()
                     .eq(Picture::getId, pictureId)
@@ -64,6 +64,60 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         // 上传图片，得到信息
         String picturePrefix = "public/"+loginUser.getId().toString();
         UploadPictureResult uploadResult = fileManager.uploadPicture(multipartFile, picturePrefix);
+        if (uploadResult == null || uploadResult.getUrl() == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片上传失败");
+        }
+        // 创建或更新图片记录
+        Picture picture = new Picture();
+        picture.setUrl(uploadResult.getUrl());
+        picture.setName(uploadResult.getPicName());
+        picture.setIntroduction("");
+        picture.setCategory("");
+        picture.setTags("");
+        picture.setPicSize(uploadResult.getPicSize());
+        picture.setPicWidth(Math.toIntExact(uploadResult.getPicWidth()));
+        picture.setPicHeight(Math.toIntExact(uploadResult.getPicHeight()));
+        picture.setPicScale(uploadResult.getPicScale());
+        picture.setPicFormat(uploadResult.getPicFormat());
+        picture.setUserId(loginUser.getId());
+        picture.setEditTime(new Date());
+        if (pictureId != null) {
+            picture.setId(pictureId);
+            boolean updateResult = this.updateById(picture);
+            if (!updateResult) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片更新失败");
+            }
+        } else {
+            boolean saveResult = this.save(picture);
+            System.out.println("保存图片结果: " + saveResult);
+            if (!saveResult) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片保存失败");
+            }
+        }
+        System.out.println("上传图片成功，图片ID: " + picture.getId());
+
+        return PictureVo.objToVo(picture);
+    }
+    @Override
+    public PictureVo uploadPicture(PictureUploadRequest pictureUploadRequest, User loginUser) {
+        if (loginUser==null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
+        }
+
+        Long pictureId=null;
+        if (pictureUploadRequest.getId()!=null){
+            pictureId = pictureUploadRequest.getId();
+            boolean exists = this.lambdaQuery()
+                    .eq(Picture::getId, pictureId)
+                    .exists();
+            if (!exists) {
+                throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
+            }
+        }
+        // 上传图片，得到信息
+        String picturePrefix = "public/"+loginUser.getId().toString();
+        System.out.println(pictureUploadRequest);
+        UploadPictureResult uploadResult = fileManager.uploadPicture(pictureUploadRequest.getFileUrl(), picturePrefix);
         if (uploadResult == null || uploadResult.getUrl() == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片上传失败");
         }

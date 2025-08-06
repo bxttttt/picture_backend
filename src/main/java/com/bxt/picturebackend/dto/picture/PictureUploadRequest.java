@@ -12,6 +12,7 @@ public class PictureUploadRequest implements Serializable {
 
     private Long id;
 
+    private String fileUrl;
 
 
 }

@@ -37,13 +37,22 @@ public class PictureController {
     private UserService userService;
     @Autowired
     private PictureService pictureService;
-    @PostMapping("/upload")
+    @PostMapping("/upload/file")
     @AuthCheck(mustRole = UserConstant.ROLE_ADMIN)
     public BaseResponse<PictureVo> uploadPicture(@RequestPart("file") MultipartFile multipartFile,
                                                  @RequestPart(value = "pictureUploadRequest", required = false) PictureUploadRequest pictureUploadRequest,
                                                  HttpServletRequest httpServletRequest) {
         UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
         PictureVo pictureVo = pictureService.uploadPicture(multipartFile, pictureUploadRequest, userService.getById(loginUser.getId()));
+        return ResultUtils.success(pictureVo);
+    }
+    @PostMapping("/upload/url")
+    @AuthCheck(mustRole = UserConstant.ROLE_ADMIN)
+    public BaseResponse<PictureVo> uploadPicture(@RequestBody PictureUploadRequest pictureUploadRequest,
+                                                 HttpServletRequest httpServletRequest) {
+        UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
+        System.out.println(pictureUploadRequest);
+        PictureVo pictureVo = pictureService.uploadPicture(pictureUploadRequest, userService.getById(loginUser.getId()));
         return ResultUtils.success(pictureVo);
     }
     @PostMapping("/delete")
