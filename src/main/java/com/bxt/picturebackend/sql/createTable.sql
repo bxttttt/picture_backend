@@ -135,3 +135,6 @@ alter table picture
     add column reviewTime datetime null comment '审核时间',
     add column reviewUserId bigint null comment '审核用户 ID（审核通过/不通过的管理员）';
 create index idx_reviewStatue on picture (reviewStatus);
+
+alter table picture
+    add column thumbnailUrl varchar(512) null comment '缩略图 URL';

@@ -1,5 +1,6 @@
 package com.bxt.picturebackend.manager;
 
+import cn.hutool.core.io.FileUtil;
 import com.bxt.picturebackend.config.CosClientConfig;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.exception.BusinessException;
@@ -11,6 +12,7 @@ import com.qcloud.cos.model.PutObjectRequest;
 import com.qcloud.cos.model.PutObjectResult;
 import com.qcloud.cos.model.ciModel.persistence.PicOperations;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import javax.imageio.ImageIO;
@@ -18,7 +20,9 @@ import java.awt.image.BufferedImage;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
-
+import java.util.ArrayList;
+import java.util.List;
+@Slf4j
 @Component
 public class CosManager {
     /**
@@ -69,15 +73,40 @@ public class CosManager {
      * @param file 文件
      */
     public PutObjectResult putPictureObject(String key, File file) {
-        PutObjectRequest putObjectRequest = new PutObjectRequest(cosClientConfig.getBucket(), key, file);
-        PicOperations picOperations=new PicOperations();
+        PutObjectRequest putObjectRequest = new PutObjectRequest(cosClientConfig.getBucket(), key,
+                file);
+        // 对图片进行处理（获取基本信息也被视作为一种处理）
+        PicOperations picOperations = new PicOperations();
+        // 1 表示返回原图信息
         picOperations.setIsPicInfo(1);
+        List<PicOperations.Rule> rules = new ArrayList<>();
+        // 图片压缩（转成 webp 格式）
+        String webpKey = FileUtil.mainName(key) + ".webp";
+        PicOperations.Rule compressRule = new PicOperations.Rule();
+        compressRule.setRule("imageMogr2/format/webp");
+        compressRule.setBucket(cosClientConfig.getBucket());
+        compressRule.setFileId(webpKey);
+        rules.add(compressRule);
+        // 图片缩放（缩放到 128*128）
+        PicOperations.Rule thumbNailRule = new PicOperations.Rule();
+        thumbNailRule.setBucket(cosClientConfig.getBucket());
+        String thumbNailKey = FileUtil.mainName(key) + "_thumbnail.webp";
+        thumbNailRule.setFileId(thumbNailKey);
+        thumbNailRule.setRule("imageMogr2/thumbnail/128x128");
+        rules.add(thumbNailRule);
+        // 构造处理参数
+        picOperations.setRules(rules);
         putObjectRequest.setPicOperations(picOperations);
-        PutObjectResult putObjectResult = cosClient.putObject(putObjectRequest);
-        if (putObjectResult == null) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传图片失败");
-        }
         return cosClient.putObject(putObjectRequest);
+    }
+    public boolean deletePictureObject(String key) {
+        try {
+            cosClient.deleteObject(cosClientConfig.getBucket(), key);
+            return true;
+        } catch (Exception e) {
+            log.error("删除对象失败，key: {}", key, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "删除对象失败");
+        }
     }
 
 

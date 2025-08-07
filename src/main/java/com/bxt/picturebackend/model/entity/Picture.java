@@ -118,4 +118,9 @@ public class Picture implements Serializable {
      * 审核用户 ID（审核通过/不通过的管理员）
      */
     private Long reviewUserId;
+
+    /**
+     * 缩略图 URL
+     */
+    private String thumbnailUrl;
 }

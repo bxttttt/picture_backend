@@ -25,9 +25,11 @@ import com.bxt.picturebackend.dto.picture.PictureUploadRequest;
 import com.bxt.picturebackend.exception.BusinessException;
 import com.bxt.picturebackend.exception.ErrorCode;
 import com.bxt.picturebackend.exception.ThrowUtils;
+import com.bxt.picturebackend.manager.CosManager;
 import com.bxt.picturebackend.manager.FileManager;
 import com.bxt.picturebackend.model.entity.Picture;
 import com.bxt.picturebackend.model.entity.User;
+import com.bxt.picturebackend.model.enums.UserRoleEnum;
 import com.bxt.picturebackend.service.PictureService;
 import com.bxt.picturebackend.mapper.PictureMapper;
 import com.bxt.picturebackend.service.UserService;
@@ -39,6 +41,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -57,15 +60,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     private UserService userService;
     @Autowired
     private ProjectInfoAutoConfiguration projectInfoAutoConfiguration;
-
+    @Autowired
+    private CosManager cosManager;
     @Override
     public PictureVo uploadPicture(MultipartFile multipartFile, PictureUploadRequest pictureUploadRequest, User loginUser) {
         if (loginUser==null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
         }
-
         Long pictureId=null;
-        if (pictureUploadRequest.getId()!=null){
+        if (pictureUploadRequest!=null &&pictureUploadRequest.getId()!=null){
             pictureId = pictureUploadRequest.getId();
             boolean exists = this.lambdaQuery()
                     .eq(Picture::getId, pictureId)
@@ -94,6 +97,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         picture.setPicFormat(uploadResult.getPicFormat());
         picture.setUserId(loginUser.getId());
         picture.setEditTime(new Date());
+        picture.setThumbnailUrl(uploadResult.getThumbnailUrl());
         if (pictureId != null) {
             picture.setId(pictureId);
             boolean updateResult = this.updateById(picture);
@@ -148,6 +152,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         picture.setPicFormat(uploadResult.getPicFormat());
         picture.setUserId(loginUser.getId());
         picture.setEditTime(new Date());
+        picture.setThumbnailUrl(uploadResult.getThumbnailUrl());
         if (pictureId != null) {
             picture.setId(pictureId);
             boolean updateResult = this.updateById(picture);
@@ -239,7 +244,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     @Override
     public PictureVo getPictureVo(Picture picture, Long userId) {
         User user= userService.getById(userId);
-        UserLoginVo userLoginVo = null;
+        UserLoginVo userLoginVo = new UserLoginVo();
         BeanUtils.copyProperties(user, userLoginVo);
         PictureVo pictureVo = PictureVo.objToVo(picture);
         if (userLoginVo != null) {
@@ -356,7 +361,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 // 正则提取 thumbURL
                 Pattern pattern = Pattern.compile("\"thumbURL\":\"(.*?)\"");
                 Matcher matcher = pattern.matcher(body);
-                
+
                 while (matcher.find() && imageUrls.size() < count) {
                     String imgUrl = matcher.group(1).replaceAll("\\\\", "");
                     imageUrls.add(imgUrl);
@@ -374,6 +379,38 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
 
         return imageUrls;
     }
+    private String getKeyFromUrl(String url) {
+        String domain = "https://bxttttt-1321961985.cos.ap-shanghai.myqcloud.com/";
+        if (url != null && url.startsWith(domain)) {
+            return url.substring(domain.length());
+        }
+        return url;
+    }
+    @Async
+    @Override
+    public boolean deletePicture(Long pictureId, UserLoginVo loginUser) {
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
+        }
+        Picture picture = this.getById(pictureId);
+        ThrowUtils.throwIf(picture == null, ErrorCode.NOT_FOUND_ERROR, "图片不存在");
+        if (!loginUser.getUserRole().equals(UserRoleEnum.ADMIN.getValue())&&!picture.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "无权限删除该图片");
+        }
+
+        boolean deleteResult = this.removeById(pictureId);
+        String key= getKeyFromUrl(picture.getUrl());
+        cosManager.deletePictureObject(key);
+        if (picture.getThumbnailUrl() != null) {
+            cosManager.deletePictureObject(getKeyFromUrl(picture.getThumbnailUrl()));
+        }
+        if (!deleteResult) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片删除失败");
+        }
+        return deleteResult;
+    }
+
+
 
 }
 

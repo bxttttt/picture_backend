@@ -83,6 +83,11 @@ public class PictureVo implements Serializable {
 
     private UserLoginVo userLoginVo;
 
+    /**
+     * 缩略图 URL
+     */
+    private String thumbnailUrl;
+
     public static Picture voToObj(PictureVo pictureVo){
         if (pictureVo == null) {
             return null;

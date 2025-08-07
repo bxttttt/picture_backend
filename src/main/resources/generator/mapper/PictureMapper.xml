@@ -25,12 +25,13 @@
             <result property="reviewReason" column="reviewReason" />
             <result property="reviewTime" column="reviewTime" />
             <result property="reviewUserId" column="reviewUserId" />
+            <result property="thumbnailUrl" column="thumbnailUrl" />
     </resultMap>
 
     <sql id="Base_Column_List">
         id,url,name,introduction,category,tags,
         picSize,picWidth,picHeight,picScale,picFormat,
         userId,createTime,editTime,updateTime,isDeleted,
-        reviewStatus,reviewReason,reviewTime,reviewUserId
+        reviewStatus,reviewReason,reviewTime,reviewUserId,thumbnailUrl
     </sql>
 </mapper>

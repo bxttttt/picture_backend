@@ -1,7 +1,9 @@
 package com.bxt.picturebackend.manager;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.NumberUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpResponse;
@@ -14,14 +16,20 @@ import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.exception.BusinessException;
 import com.bxt.picturebackend.exception.ErrorCode;
 import com.bxt.picturebackend.exception.ThrowUtils;
+import com.bxt.picturebackend.model.entity.Picture;
+import com.bxt.picturebackend.model.enums.UserRoleEnum;
+import com.bxt.picturebackend.vo.UserLoginVo;
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.model.COSObject;
 import com.qcloud.cos.model.GetObjectRequest;
 import com.qcloud.cos.model.PutObjectRequest;
 import com.qcloud.cos.model.PutObjectResult;
+import com.qcloud.cos.model.ciModel.persistence.CIObject;
 import com.qcloud.cos.model.ciModel.persistence.ImageInfo;
+import com.qcloud.cos.model.ciModel.persistence.ProcessResults;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.ibatis.javassist.bytecode.stackmap.BasicBlock;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -52,6 +60,24 @@ public class FileManager {
 
     @Resource
     private CosManager cosManager;
+    private UploadPictureResult buildResult(String originFilename, CIObject compressedCiObject, CIObject thumbnailCiObject) {
+        UploadPictureResult uploadPictureResult = new UploadPictureResult();
+        int picWidth = compressedCiObject.getWidth();
+        int picHeight = compressedCiObject.getHeight();
+        double picScale = NumberUtil.round(picWidth * 1.0 / picHeight, 2).doubleValue();
+        uploadPictureResult.setPicName(FileUtil.mainName(originFilename));
+        uploadPictureResult.setPicWidth((long) picWidth);
+        uploadPictureResult.setPicHeight((long) picHeight);
+        uploadPictureResult.setPicScale(picScale);
+        uploadPictureResult.setPicFormat(compressedCiObject.getFormat());
+        uploadPictureResult.setPicSize(compressedCiObject.getSize().longValue());
+        uploadPictureResult.setThumbnailUrl(cosClientConfig.getHost() + "/" + thumbnailCiObject.getKey());
+        // 设置图片为压缩后的地址
+        uploadPictureResult.setUrl(cosClientConfig.getHost() + "/" + compressedCiObject.getKey());
+        return uploadPictureResult;
+    }
+
+
     public UploadPictureResult uploadPicture(MultipartFile multipartFile, String uploadPathPrefix) {
         UploadPictureResult uploadPictureResult = new UploadPictureResult();
 
@@ -71,6 +97,13 @@ public class FileManager {
             multipartFile.transferTo(file);
             PutObjectResult putObjectResult = cosManager.putPictureObject(uploadPath, file);
             ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();
+            ProcessResults processResults = putObjectResult.getCiUploadResult().getProcessResults();
+            List<CIObject> objectList = processResults.getObjectList();
+            if (CollUtil.isNotEmpty(objectList)){
+                CIObject compressedObject = objectList.get(0);
+                CIObject thumbnailObject = objectList.get(1);
+                return buildResult(originalFilename,compressedObject,thumbnailObject);
+            }
             // 封装返回结果
             result.setPicFormat( imageInfo.getFormat());
             result.setPicHeight((long) imageInfo.getHeight());
@@ -83,6 +116,8 @@ public class FileManager {
             log.error("file upload error, filepath = " + uploadPath, e);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
         } finally {
+
+            deleteOriginPicture(result.getUrl());
             deleteTemplateFile(file);
         }
 
@@ -109,6 +144,14 @@ public class FileManager {
             // ... 其余代码保持不变
             PutObjectResult putObjectResult = cosManager.putPictureObject(uploadPath, file);
             ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();
+            ProcessResults processResults = putObjectResult.getCiUploadResult().getProcessResults();
+            List<CIObject> objectList = processResults.getObjectList();
+            if (CollUtil.isNotEmpty(objectList)){
+                CIObject compressedObject = objectList.get(0);
+                CIObject thumbnailObject = objectList.get(1);
+                deleteOriginPicture(compressedObject.getKey());
+                return buildResult(originFilename,compressedObject,thumbnailObject);
+            }
             // 封装返回结果
             result.setPicFormat( imageInfo.getFormat());
             result.setPicHeight((long) imageInfo.getHeight());
@@ -121,9 +164,39 @@ public class FileManager {
             log.error("图片上传到对象存储失败", e);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
         } finally {
+//            deletePicture(result.getUrl());
             deleteTemplateFile(file);
         }
         return result;
+
+    }
+
+    private String getKeyFromUrl(String url) {
+        String domain = "https://bxttttt-1321961985.cos.ap-shanghai.myqcloud.com/";
+        if (url != null && url.startsWith(domain)) {
+            return url.substring(domain.length());
+        }
+        return url;
+    }
+    // 用于删除原图（既不是缩略图，也不是webp文件）
+    private boolean deleteOriginPicture(String key) {
+//        String key= getKeyFromUrl(url);
+        System.out.println("删除对象的key1: " + key);
+        // 删除key中的webp
+        if (StrUtil.isBlank(key)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件地址不能为空");
+        }
+        if (key.endsWith("webp")) {
+            key = key.substring(0, key.length() - 4); // 去掉 .webp 后缀
+        }
+        System.out.println("删除对象的key2: " + key);
+        try{
+            cosManager.deletePictureObject(key);
+        }catch (Exception e){
+            log.error("删除对象失败，key: {}", key, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "删除对象失败");
+        }
+        return true;
 
     }
 

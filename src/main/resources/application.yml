@@ -5,7 +5,7 @@ server:
 spring:
   session:
     storage-type: redis  # 使用 Redis 存储会话
-    timeout: 1800s  # 会话超时时间，单位为秒
+    timeout: 2592000  # 会话超时时间，单位为秒
   data:
     redis:
       host: localhost   # Redis 地址

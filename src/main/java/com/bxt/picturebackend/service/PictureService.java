@@ -42,4 +42,6 @@ public interface PictureService extends IService<Picture> {
     List<UploadPictureResult> fetchPicturesFromBaidu(String keyword, int count, String uploadPathPrefix);
 
     List<String> getImageUrlsFromBaidu(String keyword, int count);
+
+    boolean deletePicture(Long pictureId, UserLoginVo loginUser);
 }
