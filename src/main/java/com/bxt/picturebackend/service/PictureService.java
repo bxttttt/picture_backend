@@ -3,6 +3,7 @@ package com.bxt.picturebackend.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
+import com.bxt.picturebackend.dto.picture.PictureDownloadRequest;
 import com.bxt.picturebackend.dto.picture.PictureQueryRequest;
 import com.bxt.picturebackend.dto.picture.PictureReviewRequest;
 import com.bxt.picturebackend.dto.picture.PictureUploadRequest;
@@ -12,6 +13,7 @@ import com.bxt.picturebackend.model.entity.User;
 import com.bxt.picturebackend.vo.PictureVo;
 import com.bxt.picturebackend.vo.UserLoginVo;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -44,4 +46,10 @@ public interface PictureService extends IService<Picture> {
     List<String> getImageUrlsFromBaidu(String keyword, int count);
 
     boolean deletePicture(Long pictureId, UserLoginVo loginUser);
+
+    void downloadPictureBlindWatermarking(PictureDownloadRequest pictureDownloadRequest, UserLoginVo userLoginVo, HttpServletResponse httpServletResponse);
+
+    void downloadPictureWordWatermarking(PictureDownloadRequest pictureDownloadRequest,
+                                         UserLoginVo userLoginVo,
+                                         HttpServletResponse httpServletResponse);
 }

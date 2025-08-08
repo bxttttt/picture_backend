@@ -23,6 +23,7 @@ import com.bxt.picturebackend.vo.UserLoginVo;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -280,6 +281,27 @@ public class PictureController {
         }
         return ResultUtils.success(results);
     }
+
+    @PostMapping("/downloadPicture/watermarking/blind")
+    public void downloadPictureBlindWaterMarking(@RequestBody PictureDownloadRequest pictureDownloadRequest, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse){
+        UserLoginVo userLoginVo=userService.getCurrentUser(httpServletRequest);
+        try {
+            pictureService.downloadPictureBlindWatermarking(pictureDownloadRequest,userLoginVo,httpServletResponse);
+        }catch (Exception e){
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR);
+        }
+    }
+    @PostMapping("/downloadPicture/watermarking/word")
+    public void downloadPictureWordWaterMarking(@RequestBody PictureDownloadRequest pictureDownloadRequest, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse){
+        UserLoginVo userLoginVo=userService.getCurrentUser(httpServletRequest);
+        try {
+            pictureService.downloadPictureWordWatermarking(pictureDownloadRequest,userLoginVo,httpServletResponse);
+        }catch (Exception e){
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR);
+        }
+    }
+
+
 
 
 

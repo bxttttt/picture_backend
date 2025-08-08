@@ -1,4 +1,5 @@
 package com.bxt.picturebackend.service.impl;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -18,7 +19,9 @@ import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.bxt.picturebackend.config.CosClientConfig;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
+import com.bxt.picturebackend.dto.picture.PictureDownloadRequest;
 import com.bxt.picturebackend.dto.picture.PictureQueryRequest;
 import com.bxt.picturebackend.dto.picture.PictureReviewRequest;
 import com.bxt.picturebackend.dto.picture.PictureUploadRequest;
@@ -28,20 +31,25 @@ import com.bxt.picturebackend.exception.ThrowUtils;
 import com.bxt.picturebackend.manager.CosManager;
 import com.bxt.picturebackend.manager.FileManager;
 import com.bxt.picturebackend.model.entity.Picture;
+import com.bxt.picturebackend.model.entity.Picturedownload;
 import com.bxt.picturebackend.model.entity.User;
 import com.bxt.picturebackend.model.enums.UserRoleEnum;
 import com.bxt.picturebackend.service.PictureService;
 import com.bxt.picturebackend.mapper.PictureMapper;
+import com.bxt.picturebackend.service.PicturedownloadService;
 import com.bxt.picturebackend.service.UserService;
 import com.bxt.picturebackend.vo.PictureVo;
 import com.bxt.picturebackend.vo.UserLoginVo;
+import com.qcloud.cos.model.COSObject;
+import com.qcloud.cos.model.COSObjectInputStream;
+import com.qcloud.cos.utils.IOUtils;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -386,7 +394,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
         return url;
     }
-    @Async
+
     @Override
     public boolean deletePicture(Long pictureId, UserLoginVo loginUser) {
         if (loginUser == null) {
@@ -409,6 +417,115 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
         return deleteResult;
     }
+    @Autowired
+    private PicturedownloadService picturedownloadService;
+
+    @Override
+    public void downloadPictureBlindWatermarking(PictureDownloadRequest pictureDownloadRequest,
+                                                 UserLoginVo userLoginVo,
+                                                 HttpServletResponse httpServletResponse) {
+        if (pictureDownloadRequest == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求信息为空");
+        }
+        if (userLoginVo == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+
+        Long pictureId = pictureDownloadRequest.getPictureId();
+        Long userId = userLoginVo.getId();
+        String picUrl = pictureDownloadRequest.getPicUrl();
+
+        String key = getKey(picUrl);
+        System.out.println("pictureId=" + pictureId);
+        System.out.println("userId=" + userId);
+        System.out.println("key=" + key);
+
+        // 从 key 中获取文件名和后缀
+        String fileName = key.substring(key.lastIndexOf("/") + 1);
+        String fileExt = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".") + 1) : "jpg";
+        String contentType = "image/" + ("jpg".equalsIgnoreCase(fileExt) ? "jpeg" : fileExt);
+
+        // 下载 COS 对象（加盲水印）
+        COSObject cosObject = cosManager.downloadPictureToFileWithBlindWatermark(key);
+        try (COSObjectInputStream inputStream = cosObject.getObjectContent()) {
+            byte[] bytes = IOUtils.toByteArray(inputStream);
+
+            // 设置响应头
+            httpServletResponse.setContentType(contentType);
+            httpServletResponse.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+            httpServletResponse.getOutputStream().write(bytes);
+            httpServletResponse.getOutputStream().flush();
+        } catch (IOException e) {
+            log.error("file download error, filepath = " + picUrl, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "下载失败");
+        }
+
+        // 保存下载记录
+        Picturedownload picturedownload = new Picturedownload();
+        picturedownload.setPictureId(pictureId);
+        picturedownload.setUserId(userId);
+        picturedownloadService.save(picturedownload);
+    }
+    @Override
+    public void downloadPictureWordWatermarking(PictureDownloadRequest pictureDownloadRequest,
+                                                UserLoginVo userLoginVo,
+                                                HttpServletResponse httpServletResponse) {
+        if (pictureDownloadRequest == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求信息为空");
+        }
+        if (userLoginVo == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+
+        Long pictureId = pictureDownloadRequest.getPictureId();
+        Long userId = userLoginVo.getId();
+        String picUrl = pictureDownloadRequest.getPicUrl();
+
+        String key = getKey(picUrl);
+        System.out.println("pictureId=" + pictureId);
+        System.out.println("userId=" + userId);
+        System.out.println("key=" + key);
+
+        // 从 key 中获取文件名和后缀
+        String fileName = key.substring(key.lastIndexOf("/") + 1);
+        String fileExt = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".") + 1) : "jpg";
+        String contentType = "image/" + ("jpg".equalsIgnoreCase(fileExt) ? "jpeg" : fileExt);
+
+        // 下载 COS 对象（加盲水印）
+        COSObject cosObject = cosManager.downloadPictureToFileWithWordWatermark(key);
+        try (COSObjectInputStream inputStream = cosObject.getObjectContent()) {
+            byte[] bytes = IOUtils.toByteArray(inputStream);
+
+            // 设置响应头
+            httpServletResponse.setContentType(contentType);
+            httpServletResponse.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+            httpServletResponse.getOutputStream().write(bytes);
+            httpServletResponse.getOutputStream().flush();
+        } catch (IOException e) {
+            log.error("file download error, filepath = " + picUrl, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "下载失败");
+        }
+
+        // 保存下载记录
+        Picturedownload picturedownload = new Picturedownload();
+        picturedownload.setPictureId(pictureId);
+        picturedownload.setUserId(userId);
+        picturedownloadService.save(picturedownload);
+    }
+    @Autowired
+    private CosClientConfig cosClientConfig;
+    private String getKey(String url) {
+        String host = cosClientConfig.getHost();
+        if (url != null && url.startsWith(host)) {
+            return url.substring(host.length());
+        }
+        return url; // 如果不是COS域名开头，就原样返回或抛异常
+    }
+
+
+
+
+
 
 
 

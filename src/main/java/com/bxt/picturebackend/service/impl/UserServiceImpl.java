@@ -101,7 +101,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"密码错误");
         }
         request.getSession().setAttribute(UserConstant.USER_LOGIN_STATE, user); // 将用户信息存入会话
-        request.getSession().setMaxInactiveInterval(30 * 60);
+        request.getSession().setMaxInactiveInterval(60 * 60*30);
         // 返回用户登录信息
         UserLoginVo userLoginVo = new UserLoginVo();
         BeanUtils.copyProperties(user, userLoginVo);

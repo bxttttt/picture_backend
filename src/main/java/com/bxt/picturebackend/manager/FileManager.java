@@ -196,7 +196,7 @@ public class FileManager {
 //
 
     private String getKeyFromUrl(String url) {
-        String domain = "https://bxttttt-1321961985.cos.ap-shanghai.myqcloud.com/";
+        String domain=cosClientConfig.getHost()+"/";
         if (url != null && url.startsWith(domain)) {
             return url.substring(domain.length());
         }
@@ -254,7 +254,7 @@ public class FileManager {
             }
         }
     }
-
+    @Deprecated
     private void validPicture(MultipartFile multipartFile) {
         if (multipartFile == null || multipartFile.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "上传的文件不能为空");
@@ -273,6 +273,7 @@ public class FileManager {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "上传的图片格式不支持");
         }
     }
+    @Deprecated
     private void validPicture(String fileUrl) {
         ThrowUtils.throwIf(StrUtil.isBlank(fileUrl), ErrorCode.PARAMS_ERROR, "文件地址不能为空");
 
@@ -320,6 +321,7 @@ public class FileManager {
             }
         }
     }
+
 
 
 

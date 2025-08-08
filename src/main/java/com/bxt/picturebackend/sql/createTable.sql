@@ -138,3 +138,13 @@ create index idx_reviewStatue on picture (reviewStatus);
 
 alter table picture
     add column thumbnailUrl varchar(512) null comment '缩略图 URL';
+
+create table if not exists pictureDownload
+(
+    id         bigint auto_increment comment 'id' primary key,
+    userId     bigint not null comment '用户 id',
+    pictureId  bigint not null comment '图片 id',
+    createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+    isDeleted   tinyint  default 0                 not null comment '是否删除'
+
+)comment "下载图片"

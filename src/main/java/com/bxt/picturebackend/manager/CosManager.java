@@ -20,7 +20,9 @@ import java.awt.image.BufferedImage;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 @Slf4j
 @Component
@@ -65,6 +67,34 @@ public class CosManager {
                 cosClientConfig.getBucket(), key);
         cosClient.getObject(getObjectRequest, localFile);
     }
+    /**
+     * 下载带有盲水印的图片到本地文件
+     */
+    public COSObject downloadPictureToFileWithBlindWatermark(String key){
+
+        GetObjectRequest getObj = new GetObjectRequest(cosClientConfig.getBucket(), key);
+        System.out.println("key:"+key);
+        // 转 Base64
+        String textBase64 = Base64.getEncoder()
+                .encodeToString(key.getBytes(StandardCharsets.UTF_8));
+        String rule = "watermark/3/type/3/text/"+textBase64;
+        getObj.putCustomQueryParameter(rule, null);
+        return cosClient.getObject(getObj);
+    }
+    /**
+     * 下载带有文字水印的图片到本地文件
+     */
+    public COSObject downloadPictureToFileWithWordWatermark(String key){
+        System.out.println("word");
+        GetObjectRequest getObj = new GetObjectRequest(cosClientConfig.getBucket(), key);
+        System.out.println("key:"+key);
+        String textBase64 = Base64.getEncoder()
+                .encodeToString(key.getBytes(StandardCharsets.UTF_8));
+        String rule = "watermark/2/degree/45/text/"+textBase64;
+        getObj.putCustomQueryParameter(rule, null);
+        return cosClient.getObject(getObj);
+    }
+
 
     /**
      * 上传对象（附带图片信息）
