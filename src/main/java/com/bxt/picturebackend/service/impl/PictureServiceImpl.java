@@ -3,6 +3,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,6 +21,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.bxt.picturebackend.config.CosClientConfig;
+import com.bxt.picturebackend.constant.UserConstant;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.dto.picture.PictureDownloadRequest;
 import com.bxt.picturebackend.dto.picture.PictureQueryRequest;
@@ -34,12 +36,15 @@ import com.bxt.picturebackend.model.entity.Picture;
 import com.bxt.picturebackend.model.entity.Picturedownload;
 import com.bxt.picturebackend.model.entity.User;
 import com.bxt.picturebackend.model.enums.UserRoleEnum;
+import com.bxt.picturebackend.model.enums.UserVIPEnum;
 import com.bxt.picturebackend.service.PictureService;
 import com.bxt.picturebackend.mapper.PictureMapper;
 import com.bxt.picturebackend.service.PicturedownloadService;
 import com.bxt.picturebackend.service.UserService;
 import com.bxt.picturebackend.vo.PictureVo;
 import com.bxt.picturebackend.vo.UserLoginVo;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.qcloud.cos.model.COSObject;
 import com.qcloud.cos.model.COSObjectInputStream;
 import com.qcloud.cos.utils.IOUtils;
@@ -49,9 +54,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+
+import javax.swing.*;
 
 /**
 * @author bxt
@@ -92,20 +100,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片上传失败");
         }
         // 创建或更新图片记录
-        Picture picture = new Picture();
-        picture.setUrl(uploadResult.getUrl());
-        picture.setName(uploadResult.getPicName());
-        picture.setIntroduction("");
-        picture.setCategory("");
-        picture.setTags("");
-        picture.setPicSize(uploadResult.getPicSize());
-        picture.setPicWidth(Math.toIntExact(uploadResult.getPicWidth()));
-        picture.setPicHeight(Math.toIntExact(uploadResult.getPicHeight()));
-        picture.setPicScale(uploadResult.getPicScale());
-        picture.setPicFormat(uploadResult.getPicFormat());
-        picture.setUserId(loginUser.getId());
-        picture.setEditTime(new Date());
-        picture.setThumbnailUrl(uploadResult.getThumbnailUrl());
+        Picture picture=buildPicture(uploadResult,loginUser.getId(),pictureId);
         if (pictureId != null) {
             picture.setId(pictureId);
             boolean updateResult = this.updateById(picture);
@@ -147,20 +142,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片上传失败");
         }
         // 创建或更新图片记录
-        Picture picture = new Picture();
-        picture.setUrl(uploadResult.getUrl());
-        picture.setName(uploadResult.getPicName());
-        picture.setIntroduction("");
-        picture.setCategory("");
-        picture.setTags("");
-        picture.setPicSize(uploadResult.getPicSize());
-        picture.setPicWidth(Math.toIntExact(uploadResult.getPicWidth()));
-        picture.setPicHeight(Math.toIntExact(uploadResult.getPicHeight()));
-        picture.setPicScale(uploadResult.getPicScale());
-        picture.setPicFormat(uploadResult.getPicFormat());
-        picture.setUserId(loginUser.getId());
-        picture.setEditTime(new Date());
-        picture.setThumbnailUrl(uploadResult.getThumbnailUrl());
+        Picture picture=buildPicture(uploadResult,loginUser.getId(),pictureId);
         if (pictureId != null) {
             picture.setId(pictureId);
             boolean updateResult = this.updateById(picture);
@@ -177,6 +159,27 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         System.out.println("上传图片成功，图片ID: " + picture.getId());
 
         return PictureVo.objToVo(picture);
+    }
+    /**
+     * 构建 Picture 实体
+     */
+    private Picture buildPicture(UploadPictureResult result, Long userId, Long pictureId) {
+        Picture picture = new Picture();
+        picture.setId(pictureId);
+        picture.setUrl(result.getUrl());
+        picture.setName(result.getPicName());
+        picture.setIntroduction("");
+        picture.setCategory("");
+        picture.setTags("");
+        picture.setPicSize(result.getPicSize());
+        picture.setPicWidth(Math.toIntExact(result.getPicWidth()));
+        picture.setPicHeight(Math.toIntExact(result.getPicHeight()));
+        picture.setPicScale(result.getPicScale());
+        picture.setPicFormat(result.getPicFormat());
+        picture.setUserId(userId);
+        picture.setEditTime(new Date());
+        picture.setThumbnailUrl(result.getThumbnailUrl());
+        return picture;
     }
 
     @Override
@@ -240,6 +243,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
         return queryWrapper;
     }
+
     @Override
     public PictureVo getPictureVo(Picture picture, HttpServletRequest request){
         UserLoginVo userLoginVo=userService.getCurrentUser(request);
@@ -419,7 +423,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     }
     @Autowired
     private PicturedownloadService picturedownloadService;
-
+    private Cache<String,String> cache= Caffeine.newBuilder().expireAfterWrite(12, TimeUnit.HOURS) // 写入10分钟后过期
+            .maximumSize(1000) // 最大缓存条数
+            .build();
     @Override
     public void downloadPictureBlindWatermarking(PictureDownloadRequest pictureDownloadRequest,
                                                  UserLoginVo userLoginVo,
@@ -434,7 +440,26 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         Long pictureId = pictureDownloadRequest.getPictureId();
         Long userId = userLoginVo.getId();
         String picUrl = pictureDownloadRequest.getPicUrl();
-
+        int isVip=userLoginVo.getIsVip();
+        // 如果不是会员，要检测12小时内是不是已经下载了3条
+        if (isVip != UserVIPEnum.VIP.getValue() || userLoginVo.getVipExpireTime().before(new Date())){
+//            Cache<String,String> cache= Caffeine.newBuilder().expireAfterWrite(12, TimeUnit.HOURS) // 写入10分钟后过期
+//                    .maximumSize(1000) // 最大缓存条数
+//                    .build();
+            String cacheKey=userId.toString();
+            int flag=0;
+            for (Long i = 0L; i< (long)UserConstant.NOT_VIP_MAX_DOWNLOAD_TIMES; i++){
+                if (cache.getIfPresent((cacheKey+i.toString()))==null){
+                    System.out.println("cacheKey:"+cacheKey+i.toString());
+                    cache.put(cacheKey+i.toString(),pictureId.toString());
+                    flag=1;
+                    break;
+                }
+            }
+            if (flag==0){
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR,"非会员用户一天内只能下载三次盲水印的图片");
+            }
+        }
         String key = getKey(picUrl);
         System.out.println("pictureId=" + pictureId);
         System.out.println("userId=" + userId);
@@ -466,6 +491,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         picturedownload.setUserId(userId);
         picturedownloadService.save(picturedownload);
     }
+
     @Override
     public void downloadPictureWordWatermarking(PictureDownloadRequest pictureDownloadRequest,
                                                 UserLoginVo userLoginVo,

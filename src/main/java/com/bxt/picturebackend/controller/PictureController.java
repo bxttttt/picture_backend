@@ -148,6 +148,7 @@ public class PictureController {
     @Autowired
     StringRedisTemplate stringRedisTemplate;
     @PostMapping("/list/page/vo/redis")
+    @Deprecated
     public BaseResponse<Page<PictureVo>> listPictureVoByPageFromRedis(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest httpServletRequest) {
         long current = pictureQueryRequest.getCurrent();
         long size = pictureQueryRequest.getPageSize();
@@ -172,7 +173,11 @@ public class PictureController {
         valueOperations.set(redisKey, cacheValue, cacheExpireTime, TimeUnit.SECONDS);
         return ResultUtils.success(pictureVoPage);
     }
+    private Cache<String,String> cache = Caffeine.newBuilder().maximumSize(1000) // 最大缓存条数
+            .expireAfterWrite(10, TimeUnit.MINUTES) // 写入后10分钟过期
+            .build();
     @PostMapping("/list/page/vo/caffeine")
+    @Deprecated
     public BaseResponse<Page<PictureVo>> listPictureVoByPageFromCaffeine(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest httpServletRequest) {
         long current = pictureQueryRequest.getCurrent();
         long size = pictureQueryRequest.getPageSize();
@@ -184,9 +189,7 @@ public class PictureController {
         String queryCondition=JSONUtil.toJsonStr(pictureQueryRequest);
         String hashKey= DigestUtils.md5DigestAsHex(queryCondition.getBytes(StandardCharsets.UTF_8));
         String key="picture:query:"+hashKey;
-        Cache<String,String> cache = Caffeine.newBuilder().maximumSize(1000) // 最大缓存条数
-                .expireAfterWrite(10, TimeUnit.MINUTES) // 写入后10分钟过期
-                .build();
+
         String cachedResult = cache.getIfPresent(key);
         if (cachedResult != null) {
             Page<PictureVo> cachedPage = JSONUtil.toBean(cachedResult, Page.class);
@@ -212,9 +215,7 @@ public class PictureController {
         String key="picture:query:"+hashKey;
         // 1. 先从 Caffeine 缓存中获取
         Random random=new Random();
-        Cache<String,String> cache = Caffeine.newBuilder().maximumSize(1000) // 最大缓存条数
-                .expireAfterWrite(5+random.nextInt(5), TimeUnit.MINUTES) // 写入后随机分钟过期
-                .build();
+
         String cachedResult = cache.getIfPresent(key);
         if (cachedResult != null) {
             Page<PictureVo> cachedPage = JSONUtil.toBean(cachedResult, Page.class);

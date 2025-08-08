@@ -74,10 +74,13 @@ public class CosManager {
 
         GetObjectRequest getObj = new GetObjectRequest(cosClientConfig.getBucket(), key);
         System.out.println("key:"+key);
+        String text="bxt";
         // 转 Base64
         String textBase64 = Base64.getEncoder()
-                .encodeToString(key.getBytes(StandardCharsets.UTF_8));
-        String rule = "watermark/3/type/3/text/"+textBase64;
+                .encodeToString(text.getBytes(StandardCharsets.UTF_8));
+        String rule = "?watermark/3/type/3/text/"+textBase64;
+
+        System.out.println("rule:"+rule);
         getObj.putCustomQueryParameter(rule, null);
         return cosClient.getObject(getObj);
     }
