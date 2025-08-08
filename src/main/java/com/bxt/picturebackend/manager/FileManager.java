@@ -16,8 +16,11 @@ import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.exception.BusinessException;
 import com.bxt.picturebackend.exception.ErrorCode;
 import com.bxt.picturebackend.exception.ThrowUtils;
+import com.bxt.picturebackend.manager.Uploader.MultipartFileUploader;
+import com.bxt.picturebackend.manager.Uploader.UrlFileUploader;
 import com.bxt.picturebackend.model.entity.Picture;
 import com.bxt.picturebackend.model.enums.UserRoleEnum;
+import com.bxt.picturebackend.vo.PictureVo;
 import com.bxt.picturebackend.vo.UserLoginVo;
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.model.COSObject;
@@ -27,9 +30,12 @@ import com.qcloud.cos.model.PutObjectResult;
 import com.qcloud.cos.model.ciModel.persistence.CIObject;
 import com.qcloud.cos.model.ciModel.persistence.ImageInfo;
 import com.qcloud.cos.model.ciModel.persistence.ProcessResults;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.javassist.bytecode.stackmap.BasicBlock;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -37,6 +43,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -60,7 +67,7 @@ public class FileManager {
 
     @Resource
     private CosManager cosManager;
-    private UploadPictureResult buildResult(String originFilename, CIObject compressedCiObject, CIObject thumbnailCiObject) {
+    public UploadPictureResult buildResult(String originFilename, CIObject compressedCiObject, CIObject thumbnailCiObject) {
         UploadPictureResult uploadPictureResult = new UploadPictureResult();
         int picWidth = compressedCiObject.getWidth();
         int picHeight = compressedCiObject.getHeight();
@@ -76,100 +83,117 @@ public class FileManager {
         uploadPictureResult.setUrl(cosClientConfig.getHost() + "/" + compressedCiObject.getKey());
         return uploadPictureResult;
     }
-
-
-    public UploadPictureResult uploadPicture(MultipartFile multipartFile, String uploadPathPrefix) {
-        UploadPictureResult uploadPictureResult = new UploadPictureResult();
-
-        // 校验图片
-        validPicture(multipartFile);
-        // 图片上传地址
-        String uuid= RandomUtil.randomString(16);
-        String originalFilename = multipartFile.getOriginalFilename();
-        String uploadFileName = (DateUtil.formatDate(new Date()))+"_" +uuid +"."+ FileUtil.getSuffix(originalFilename);
-        String uploadPath = uploadPathPrefix + File.separator + uploadFileName;
-        // 解析结果并返回
-        File file=null;
-        UploadPictureResult result = new UploadPictureResult();
-        try {
-            // 上传文件
-            file = File.createTempFile(uploadPath, null);
-            multipartFile.transferTo(file);
-            PutObjectResult putObjectResult = cosManager.putPictureObject(uploadPath, file);
-            ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();
-            ProcessResults processResults = putObjectResult.getCiUploadResult().getProcessResults();
-            List<CIObject> objectList = processResults.getObjectList();
-            if (CollUtil.isNotEmpty(objectList)){
-                CIObject compressedObject = objectList.get(0);
-                CIObject thumbnailObject = objectList.get(1);
-                return buildResult(originalFilename,compressedObject,thumbnailObject);
-            }
-            // 封装返回结果
-            result.setPicFormat( imageInfo.getFormat());
-            result.setPicHeight((long) imageInfo.getHeight());
-            result.setPicWidth((long) imageInfo.getWidth());
-            result.setPicSize(multipartFile.getSize());
-            result.setUrl(cosClientConfig.getHost()+"/"+uploadPath);
-            result.setPicName(FileUtil.mainName(multipartFile.getOriginalFilename()));
-            result.setPicScale( (double) imageInfo.getWidth() / imageInfo.getHeight());
-        } catch (Exception e) {
-            log.error("file upload error, filepath = " + uploadPath, e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
-        } finally {
-
-            deleteOriginPicture(result.getUrl());
-            deleteTemplateFile(file);
-        }
-
-        return result;
+    @Autowired
+    private MultipartFileUploader multipartFileUploader;
+    @Autowired
+    private UrlFileUploader urlFileUploader;
+    public UploadPictureResult uploadPicture(MultipartFile multipartFile, String uploadPathPrefix){
+        return multipartFileUploader.uploadPicture(multipartFile,uploadPathPrefix);
     }
-    public UploadPictureResult uploadPicture(String fileUrl,String uploadPathPrefix) {
-        UploadPictureResult uploadPictureResult = new UploadPictureResult();
-        // 校验图片
-        validPicture(fileUrl);
-        // 图片上传地址
-        String uuid= RandomUtil.randomString(16);
-        String originFilename = FileUtil.mainName(fileUrl);
-        String uploadFilename = String.format("%s_%s.%s", DateUtil.formatDate(new Date()), uuid,
-                FileUtil.getSuffix(originFilename));
-        String uploadPath = String.format("/%s/%s", uploadPathPrefix, uploadFilename);
-        File file = null;
-        UploadPictureResult result=new UploadPictureResult();
-        try {
-            // 创建临时文件  
-            file = File.createTempFile(uploadPath, null);
-            // multipartFile.transferTo(file);  
-            HttpUtil.downloadFile(fileUrl, file);
-            // 上传图片  
-            // ... 其余代码保持不变
-            PutObjectResult putObjectResult = cosManager.putPictureObject(uploadPath, file);
-            ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();
-            ProcessResults processResults = putObjectResult.getCiUploadResult().getProcessResults();
-            List<CIObject> objectList = processResults.getObjectList();
-            if (CollUtil.isNotEmpty(objectList)){
-                CIObject compressedObject = objectList.get(0);
-                CIObject thumbnailObject = objectList.get(1);
-                deleteOriginPicture(compressedObject.getKey());
-                return buildResult(originFilename,compressedObject,thumbnailObject);
-            }
-            // 封装返回结果
-            result.setPicFormat( imageInfo.getFormat());
-            result.setPicHeight((long) imageInfo.getHeight());
-            result.setPicWidth((long) imageInfo.getWidth());
-            result.setPicSize(file.length());
-            result.setUrl(cosClientConfig.getHost()+"/"+uploadPath);
-            result.setPicName(originFilename);
-            result.setPicScale( (double) imageInfo.getWidth() / imageInfo.getHeight());
-        } catch (Exception e) {
-            log.error("图片上传到对象存储失败", e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
-        } finally {
-//            deletePicture(result.getUrl());
-            deleteTemplateFile(file);
-        }
-        return result;
-
+    public UploadPictureResult uploadPicture(String fileUrl,String uploadPathPrefix){
+        return urlFileUploader.uploadPicture(fileUrl,uploadPathPrefix);
     }
+    @PostConstruct
+    public void init() {
+        System.out.println("multipartFileUploader = " + multipartFileUploader);
+        System.out.println("urlFileUploader = " + urlFileUploader);
+    }
+
+//    @Deprecated
+//    public UploadPictureResult uploadPicture(MultipartFile multipartFile, String uploadPathPrefix) {
+//        UploadPictureResult uploadPictureResult = new UploadPictureResult();
+//
+//        // 校验图片
+//        validPicture(multipartFile);
+//        // 图片上传地址
+//        String uuid= RandomUtil.randomString(16);
+//        String originalFilename = multipartFile.getOriginalFilename();
+//        String uploadFileName = (DateUtil.formatDate(new Date()))+"_" +uuid +"."+ FileUtil.getSuffix(originalFilename);
+//        String uploadPath = uploadPathPrefix + File.separator + uploadFileName;
+//        // 解析结果并返回
+//        File file=null;
+//        UploadPictureResult result = new UploadPictureResult();
+//        try {
+//            // 上传文件
+//            file = File.createTempFile(uploadPath, null);
+//            multipartFile.transferTo(file);
+//            PutObjectResult putObjectResult = cosManager.putPictureObject(uploadPath, file);
+//            ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();
+//            ProcessResults processResults = putObjectResult.getCiUploadResult().getProcessResults();
+//            List<CIObject> objectList = processResults.getObjectList();
+//            if (CollUtil.isNotEmpty(objectList)){
+//                CIObject compressedObject = objectList.get(0);
+//                CIObject thumbnailObject = objectList.get(1);
+//                return buildResult(originalFilename,compressedObject,thumbnailObject);
+//            }
+//            // 封装返回结果
+//            result.setPicFormat( imageInfo.getFormat());
+//            result.setPicHeight((long) imageInfo.getHeight());
+//            result.setPicWidth((long) imageInfo.getWidth());
+//            result.setPicSize(multipartFile.getSize());
+//            result.setUrl(cosClientConfig.getHost()+"/"+uploadPath);
+//            result.setPicName(FileUtil.mainName(multipartFile.getOriginalFilename()));
+//            result.setPicScale( (double) imageInfo.getWidth() / imageInfo.getHeight());
+//        } catch (Exception e) {
+//            log.error("file upload error, filepath = " + uploadPath, e);
+//            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
+//        } finally {
+//
+//            deleteOriginPicture(result.getUrl());
+//            deleteTemplateFile(file);
+//        }
+//
+//        return result;
+//    }
+//    @Deprecated
+//    public UploadPictureResult uploadPicture(String fileUrl,String uploadPathPrefix) {
+//        UploadPictureResult uploadPictureResult = new UploadPictureResult();
+//        // 校验图片
+//        validPicture(fileUrl);
+//        // 图片上传地址
+//        String uuid= RandomUtil.randomString(16);
+//        String originFilename = FileUtil.mainName(fileUrl);
+//        String uploadFilename = String.format("%s_%s.%s", DateUtil.formatDate(new Date()), uuid,
+//                FileUtil.getSuffix(originFilename));
+//        String uploadPath = String.format("/%s/%s", uploadPathPrefix, uploadFilename);
+//        File file = null;
+//        UploadPictureResult result=new UploadPictureResult();
+//        try {
+//            // 创建临时文件
+//            file = File.createTempFile(uploadPath, null);
+//            // multipartFile.transferTo(file);
+//            HttpUtil.downloadFile(fileUrl, file);
+//            // 上传图片
+//            // ... 其余代码保持不变
+//            PutObjectResult putObjectResult = cosManager.putPictureObject(uploadPath, file);
+//            ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();
+//            ProcessResults processResults = putObjectResult.getCiUploadResult().getProcessResults();
+//            List<CIObject> objectList = processResults.getObjectList();
+//            if (CollUtil.isNotEmpty(objectList)){
+//                CIObject compressedObject = objectList.get(0);
+//                CIObject thumbnailObject = objectList.get(1);
+//                deleteOriginPicture(compressedObject.getKey());
+//                return buildResult(originFilename,compressedObject,thumbnailObject);
+//            }
+//            // 封装返回结果
+//            result.setPicFormat( imageInfo.getFormat());
+//            result.setPicHeight((long) imageInfo.getHeight());
+//            result.setPicWidth((long) imageInfo.getWidth());
+//            result.setPicSize(file.length());
+//            result.setUrl(cosClientConfig.getHost()+"/"+uploadPath);
+//            result.setPicName(originFilename);
+//            result.setPicScale( (double) imageInfo.getWidth() / imageInfo.getHeight());
+//        } catch (Exception e) {
+//            log.error("图片上传到对象存储失败", e);
+//            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
+//        } finally {
+////            deletePicture(result.getUrl());
+//            deleteTemplateFile(file);
+//        }
+//        return result;
+//
+//    }
+//
 
     private String getKeyFromUrl(String url) {
         String domain = "https://bxttttt-1321961985.cos.ap-shanghai.myqcloud.com/";
@@ -179,7 +203,7 @@ public class FileManager {
         return url;
     }
     // 用于删除原图（既不是缩略图，也不是webp文件）
-    private boolean deleteOriginPicture(String key) {
+    public boolean deleteOriginPicture(String key) {
 //        String key= getKeyFromUrl(url);
         System.out.println("删除对象的key1: " + key);
         // 删除key中的webp
@@ -195,6 +219,26 @@ public class FileManager {
         }catch (Exception e){
             log.error("删除对象失败，key: {}", key, e);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "删除对象失败");
+        }
+        // 准备所有需要删除的key列表，包含原key和jpg/png/gif/jpeg格式
+        List<String> keysToDelete = new ArrayList<>();
+        keysToDelete.add(key); // 原key（已经去掉webp）
+
+        // 拼接四种常见图片格式后缀
+        String[] suffixes = {"jpg", "png", "gif", "jpeg"};
+        for (String suffix : suffixes) {
+            keysToDelete.add(key + suffix);
+        }
+
+        // 遍历删除
+        for (String k : keysToDelete) {
+            try {
+                cosManager.deletePictureObject(k);
+                System.out.println("已删除对象，key: " + k);
+            } catch (Exception e) {
+                log.error("删除对象失败，key: {}", k, e);
+                // 这里可以根据业务选择继续删除还是抛异常，我这里继续尝试删除剩余
+            }
         }
         return true;
 

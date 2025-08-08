@@ -24,6 +24,8 @@ spring:
   servlet:
     multipart:
       max-file-size: 10MB  # 设置上传文件的最大大小
+  main:
+    allow-circular-references: true
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false
