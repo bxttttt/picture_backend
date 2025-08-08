@@ -2,6 +2,7 @@ package com.bxt.picturebackend.service.impl;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -430,23 +431,67 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     public void downloadPictureBlindWatermarking(PictureDownloadRequest pictureDownloadRequest,
                                                  UserLoginVo userLoginVo,
                                                  HttpServletResponse httpServletResponse) {
-        if (pictureDownloadRequest == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求信息为空");
-        }
-        if (userLoginVo == null) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        validateDownloadRequest(pictureDownloadRequest,userLoginVo);
+        checkNonVipDownloadLimit(pictureDownloadRequest,userLoginVo);
+        String picUrl = pictureDownloadRequest.getPicUrl();
+        String key = getKey(picUrl);
+        COSObject cosObject = cosManager.downloadPictureToFileWithBlindWatermark(key);
+        downloadCosObject(cosObject, httpServletResponse,pictureDownloadRequest,userLoginVo);
+    }
+    @Override
+    public void downloadPictureWordWatermarking(PictureDownloadRequest pictureDownloadRequest,
+                                                UserLoginVo userLoginVo,
+                                                HttpServletResponse httpServletResponse) {
+        validateDownloadRequest(pictureDownloadRequest,userLoginVo);
+        String picUrl = pictureDownloadRequest.getPicUrl();
+        String key = getKey(picUrl);
+        // 下载 COS 对象（加盲水印）
+        COSObject cosObject = cosManager.downloadPictureToFileWithWordWatermark(key);
+        downloadCosObject(cosObject, httpServletResponse,pictureDownloadRequest,userLoginVo);
+    }
+    private void validateDownloadRequest(PictureDownloadRequest pictureDownloadRequest,
+                                         UserLoginVo userLoginVo){
+        ThrowUtils.throwIf(pictureDownloadRequest==null,ErrorCode.PARAMS_ERROR,"请求为空");
+        ThrowUtils.throwIf(userLoginVo==null,ErrorCode.NOT_LOGIN_ERROR);
+    }
+    private void downloadCosObject(COSObject cosObject,HttpServletResponse httpServletResponse,PictureDownloadRequest pictureDownloadRequest,UserLoginVo userLoginVo){
+        // 从 key 中获取文件名和后缀
+        String picUrl = pictureDownloadRequest.getPicUrl();
+        String key = getKey(picUrl);
+        String fileName = key.substring(key.lastIndexOf("/") + 1);
+        String fileExt = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".") + 1) : "jpg";
+        String contentType = "image/" + ("jpg".equalsIgnoreCase(fileExt) ? "jpeg" : fileExt);
+        try (COSObjectInputStream inputStream = cosObject.getObjectContent()) {
+            byte[] bytes = IOUtils.toByteArray(inputStream);
+
+            // 设置响应头
+            httpServletResponse.setContentType(contentType);
+            httpServletResponse.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+            httpServletResponse.getOutputStream().write(bytes);
+            httpServletResponse.getOutputStream().flush();
+        } catch (IOException e) {
+            log.error("file download error, filepath = " + picUrl, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "下载失败");
         }
 
-        Long pictureId = pictureDownloadRequest.getPictureId();
-        Long userId = userLoginVo.getId();
-        String picUrl = pictureDownloadRequest.getPicUrl();
+        // 保存下载记录
+        Picturedownload picturedownload = new Picturedownload();
+        picturedownload.setPictureId(pictureDownloadRequest.getPictureId());
+        picturedownload.setUserId(userLoginVo.getId());
+        picturedownloadService.save(picturedownload);
+    }
+    private void checkNonVipDownloadLimit(PictureDownloadRequest pictureDownloadRequest,
+                                          UserLoginVo userLoginVo){
         int isVip=userLoginVo.getIsVip();
         // 如果不是会员，要检测12小时内是不是已经下载了3条
         if (isVip != UserVIPEnum.VIP.getValue() || userLoginVo.getVipExpireTime().before(new Date())){
 //            Cache<String,String> cache= Caffeine.newBuilder().expireAfterWrite(12, TimeUnit.HOURS) // 写入10分钟后过期
 //                    .maximumSize(1000) // 最大缓存条数
 //                    .build();
+            Long userId=userLoginVo.getId();
             String cacheKey=userId.toString();
+            Long pictureId=pictureDownloadRequest.getPictureId();
+
             int flag=0;
             for (Long i = 0L; i< (long)UserConstant.NOT_VIP_MAX_DOWNLOAD_TIMES; i++){
                 if (cache.getIfPresent((cacheKey+i.toString()))==null){
@@ -460,83 +505,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 throw new BusinessException(ErrorCode.NO_AUTH_ERROR,"非会员用户一天内只能下载三次盲水印的图片");
             }
         }
-        String key = getKey(picUrl);
-        System.out.println("pictureId=" + pictureId);
-        System.out.println("userId=" + userId);
-        System.out.println("key=" + key);
 
-        // 从 key 中获取文件名和后缀
-        String fileName = key.substring(key.lastIndexOf("/") + 1);
-        String fileExt = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".") + 1) : "jpg";
-        String contentType = "image/" + ("jpg".equalsIgnoreCase(fileExt) ? "jpeg" : fileExt);
-
-        // 下载 COS 对象（加盲水印）
-        COSObject cosObject = cosManager.downloadPictureToFileWithBlindWatermark(key);
-        try (COSObjectInputStream inputStream = cosObject.getObjectContent()) {
-            byte[] bytes = IOUtils.toByteArray(inputStream);
-
-            // 设置响应头
-            httpServletResponse.setContentType(contentType);
-            httpServletResponse.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
-            httpServletResponse.getOutputStream().write(bytes);
-            httpServletResponse.getOutputStream().flush();
-        } catch (IOException e) {
-            log.error("file download error, filepath = " + picUrl, e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "下载失败");
-        }
-
-        // 保存下载记录
-        Picturedownload picturedownload = new Picturedownload();
-        picturedownload.setPictureId(pictureId);
-        picturedownload.setUserId(userId);
-        picturedownloadService.save(picturedownload);
-    }
-
-    @Override
-    public void downloadPictureWordWatermarking(PictureDownloadRequest pictureDownloadRequest,
-                                                UserLoginVo userLoginVo,
-                                                HttpServletResponse httpServletResponse) {
-        if (pictureDownloadRequest == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求信息为空");
-        }
-        if (userLoginVo == null) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
-        }
-
-        Long pictureId = pictureDownloadRequest.getPictureId();
-        Long userId = userLoginVo.getId();
-        String picUrl = pictureDownloadRequest.getPicUrl();
-
-        String key = getKey(picUrl);
-        System.out.println("pictureId=" + pictureId);
-        System.out.println("userId=" + userId);
-        System.out.println("key=" + key);
-
-        // 从 key 中获取文件名和后缀
-        String fileName = key.substring(key.lastIndexOf("/") + 1);
-        String fileExt = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".") + 1) : "jpg";
-        String contentType = "image/" + ("jpg".equalsIgnoreCase(fileExt) ? "jpeg" : fileExt);
-
-        // 下载 COS 对象（加盲水印）
-        COSObject cosObject = cosManager.downloadPictureToFileWithWordWatermark(key);
-        try (COSObjectInputStream inputStream = cosObject.getObjectContent()) {
-            byte[] bytes = IOUtils.toByteArray(inputStream);
-
-            // 设置响应头
-            httpServletResponse.setContentType(contentType);
-            httpServletResponse.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
-            httpServletResponse.getOutputStream().write(bytes);
-            httpServletResponse.getOutputStream().flush();
-        } catch (IOException e) {
-            log.error("file download error, filepath = " + picUrl, e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "下载失败");
-        }
-
-        // 保存下载记录
-        Picturedownload picturedownload = new Picturedownload();
-        picturedownload.setPictureId(pictureId);
-        picturedownload.setUserId(userId);
-        picturedownloadService.save(picturedownload);
     }
     @Autowired
     private CosClientConfig cosClientConfig;
@@ -547,6 +516,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
         return url; // 如果不是COS域名开头，就原样返回或抛异常
     }
+
+
 
 
 
