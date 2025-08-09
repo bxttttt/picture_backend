@@ -195,8 +195,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     @Override
     public void checkBloomFilter(Long userId, Long pictureId, String userAccount){
         if (userId!=null&&!userIdBloomFilter.mightContain(userId)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"不存在该用户id");
-        if (pictureId!=null&&!userAccountBloomFilter.mightContain(userAccount)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"不存在该用户account");
-        if (userAccount!=null&&!pictureIdBloomFilter.mightContain(pictureId)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"不存在该pictureId");
+        if (userAccount!=null&&!userAccountBloomFilter.mightContain(userAccount)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"不存在该用户account");
+        if (pictureId!=null&&!pictureIdBloomFilter.mightContain(pictureId)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"不存在该pictureId");
     }
     @Override
     public QueryWrapper<Picture> getQueryWrapper(PictureQueryRequest pictureQueryRequest){

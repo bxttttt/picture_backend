@@ -115,6 +115,15 @@ public class PictureController {
     }
     @PostMapping("/getPictureById/vo")
     public BaseResponse<PictureVo> getPictureVoById(Long id, HttpServletRequest httpServletRequest) {
+        pictureService.checkBloomFilter(null,id,null);
+        String hashKey= DigestUtils.md5DigestAsHex(id.toString().getBytes(StandardCharsets.UTF_8));
+        String redisKey="picture:id:"+hashKey;
+        ValueOperations<String,String> valueOperations=stringRedisTemplate.opsForValue();
+        String cachedResult=valueOperations.get(redisKey);
+        if (cachedResult!=null) {
+            PictureVo result=JSONUtil.toBean(cachedResult,PictureVo.class);
+            return ResultUtils.success(result);
+        }
         Picture picture = pictureService.getById(id);
         if (picture == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
@@ -123,6 +132,9 @@ public class PictureController {
         if (pictureVo == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片信息转换失败");
         }
+        String cacheValue=JSONUtil.toJsonStr(pictureVo);
+        int expireTime=60*10;
+        valueOperations.set(redisKey,cacheValue,expireTime,TimeUnit.SECONDS);
         return ResultUtils.success(pictureVo);
     }
     @PostMapping("/list/page")
@@ -173,7 +185,7 @@ public class PictureController {
         Page<Picture> picturePage = pictureService.page(new Page<>(current, size), pictureService.getQueryWrapper(pictureQueryRequest));
         Page<PictureVo> pictureVoPage = pictureService.getPictureVoPage(picturePage, httpServletRequest);
         String cacheValue = JSONUtil.toJsonStr(pictureVoPage);
-        int cacheExpireTime = 60 * 10; // 缓存1小时
+        int cacheExpireTime = 60 * 10; // 缓存10分钟
         valueOperations.set(redisKey, cacheValue, cacheExpireTime, TimeUnit.SECONDS);
         return ResultUtils.success(pictureVoPage);
     }
