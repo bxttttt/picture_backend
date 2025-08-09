@@ -4,6 +4,8 @@ import cn.hutool.core.date.DateUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.bxt.picturebackend.bloomFilter.UserAccountBloomFilter;
+import com.bxt.picturebackend.bloomFilter.UserIdBloomFilter;
 import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.constant.UserConstant;
 import com.bxt.picturebackend.dto.user.UserUpdateRequest;
@@ -17,6 +19,7 @@ import com.bxt.picturebackend.service.UserService;
 
 import com.bxt.picturebackend.vo.UserLoginVo;
 import com.bxt.picturebackend.vo.UserSearchVo;
+import com.google.common.hash.BloomFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +38,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     implements UserService {
     @Autowired
     private BCryptPasswordEncoder passwordEncoder;
+    @Autowired
+    private UserIdBloomFilter userIdBloomFilter;
+    @Autowired
+    private UserAccountBloomFilter userAccountBloomFilter;
+
     @Override
     public long registerUser(String userAccount, String password, String confirmPassword) {
         System.out.println("开始注册用户: " + userAccount);
@@ -73,13 +81,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (!isSaved) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "用户注册失败");
         }
-
+        userIdBloomFilter.add(user.getId());
+        userAccountBloomFilter.add(user.getUserAccount());
         return user.getId(); // 返回新用户的ID
 
     }
     @Override
     public UserLoginVo loginUser(String userAccount, String password, HttpServletRequest request) {
         // 检查账号和密码是否符合要求
+        if (!userAccountBloomFilter.mightContain(userAccount)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"用户不存在");
         if (userAccount == null || userAccount.isEmpty() || password == null || password.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"账号或密码不能为空");
         }
@@ -123,6 +133,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     public User getCompleteLoginUser(HttpServletRequest request) {
         User user = (User) request.getSession().getAttribute(UserConstant.USER_LOGIN_STATE);
         Long userId = user != null ? user.getId() : null;
+        if (!userIdBloomFilter.mightContain(userId)) return null;
         user= this.getById(userId);
         System.out.println(user);
         if (user == null) {
@@ -171,6 +182,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
         UserLoginVo userLoginVo=new UserLoginVo();
         BeanUtils.copyProperties(user, userLoginVo);
+        userAccountBloomFilter.add(userLoginVo.getUserAccount());
         return userLoginVo; // 返回更新后的用户信息
 
     }
@@ -179,6 +191,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (userAccount == null || userAccount.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号不能为空");
         }
+        if (!userAccountBloomFilter.mightContain(userAccount)) throw new BusinessException(ErrorCode.NOT_FOUND_ERROR,"用户不存在");
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("userAccount", userAccount);
         User user = this.getOne(queryWrapper);

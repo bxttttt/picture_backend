@@ -1,5 +1,6 @@
 package com.bxt.picturebackend.controller;
 
+import com.google.common.hash.BloomFilter;
 import cn.hutool.core.lang.copier.SrcToDestCopier;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -22,6 +23,9 @@ import com.bxt.picturebackend.vo.PictureVo;
 import com.bxt.picturebackend.vo.UserLoginVo;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.hash.Funnels;
+import com.qcloud.cos.event.DeliveryMode;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -173,9 +177,7 @@ public class PictureController {
         valueOperations.set(redisKey, cacheValue, cacheExpireTime, TimeUnit.SECONDS);
         return ResultUtils.success(pictureVoPage);
     }
-    private Cache<String,String> cache = Caffeine.newBuilder().maximumSize(1000) // 最大缓存条数
-            .expireAfterWrite(10, TimeUnit.MINUTES) // 写入后10分钟过期
-            .build();
+
     @PostMapping("/list/page/vo/caffeine")
     @Deprecated
     public BaseResponse<Page<PictureVo>> listPictureVoByPageFromCaffeine(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest httpServletRequest) {
@@ -201,6 +203,10 @@ public class PictureController {
         cache.put(key, cacheValue);
         return ResultUtils.success(pictureVoPage);
     }
+    private Cache<String,String> cache = Caffeine.newBuilder().maximumSize(1000) // 最大缓存条数
+            .expireAfterWrite(10, TimeUnit.MINUTES) // 写入后10分钟过期
+            .build();
+
     @PostMapping("/list/page/vo/multiLevelCache")
     public BaseResponse<Page<PictureVo>> listPictureVoByPageFromMultiLevelCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest httpServletRequest) {
         long current = pictureQueryRequest.getCurrent();
@@ -209,6 +215,7 @@ public class PictureController {
         if (current <= 0 || size <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "分页参数错误");
         }
+        pictureService.checkBloomFilter(pictureQueryRequest.getUserId(),pictureQueryRequest.getId(),null);
         pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.APPROVED.getValue());
         String queryCondition=JSONUtil.toJsonStr(pictureQueryRequest);
         String hashKey= DigestUtils.md5DigestAsHex(queryCondition.getBytes(StandardCharsets.UTF_8));
@@ -235,10 +242,12 @@ public class PictureController {
         Page<PictureVo> pictureVoPage = pictureService.getPictureVoPage(picturePage, httpServletRequest);
         String cacheValue = JSONUtil.toJsonStr(pictureVoPage);
         // 将查询结果写入 Redis 和 Caffeine 缓存
+        // 即使查询结果为null也会写入
         int cacheExpireTime = 300+random.nextInt(300); // 缓存随机分钟
         // 缓存随机分钟的原因是为了避免缓存雪崩
         valueOperations.set(key, cacheValue, cacheExpireTime, TimeUnit.SECONDS);
         cache.put(key, cacheValue);
+
         return ResultUtils.success(pictureVoPage);
 
     }

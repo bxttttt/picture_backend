@@ -29,6 +29,8 @@ public interface PictureService extends IService<Picture> {
 
     PictureVo uploadPicture(PictureUploadRequest pictureUploadRequest, User loginUser);
 
+    void checkBloomFilter(Long userId, Long pictureId, String userAccount);
+
     QueryWrapper<Picture> getQueryWrapper(PictureQueryRequest pictureQueryRequest);
 
     PictureVo getPictureVo(Picture picture, HttpServletRequest request);

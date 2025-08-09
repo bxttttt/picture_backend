@@ -2,12 +2,12 @@ package com.bxt.picturebackend.service.impl;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import ch.qos.logback.core.joran.conditional.ThenAction;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.URLUtil;
@@ -21,6 +21,9 @@ import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.bxt.picturebackend.bloomFilter.PictureIdBloomFilter;
+import com.bxt.picturebackend.bloomFilter.UserAccountBloomFilter;
+import com.bxt.picturebackend.bloomFilter.UserIdBloomFilter;
 import com.bxt.picturebackend.config.CosClientConfig;
 import com.bxt.picturebackend.constant.UserConstant;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
@@ -55,12 +58,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-
-import javax.swing.*;
 
 /**
 * @author bxt
@@ -79,6 +79,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     private ProjectInfoAutoConfiguration projectInfoAutoConfiguration;
     @Autowired
     private CosManager cosManager;
+    @Autowired
+    private UserIdBloomFilter userIdBloomFilter;
+    @Autowired
+    private PictureIdBloomFilter pictureIdBloomFilter;
     @Override
     public PictureVo uploadPicture(MultipartFile multipartFile, PictureUploadRequest pictureUploadRequest, User loginUser) {
         if (loginUser==null) {
@@ -116,7 +120,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             }
         }
         System.out.println("上传图片成功，图片ID: " + picture.getId());
-
+        if (!pictureIdBloomFilter.mightContain(picture.getId())){
+            pictureIdBloomFilter.add(picture.getId());
+        }
         return PictureVo.objToVo(picture);
     }
     @Override
@@ -158,7 +164,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             }
         }
         System.out.println("上传图片成功，图片ID: " + picture.getId());
-
+        if (!pictureIdBloomFilter.mightContain(picture.getId())){
+            pictureIdBloomFilter.add(picture.getId());
+        }
         return PictureVo.objToVo(picture);
     }
     /**
@@ -182,7 +190,14 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         picture.setThumbnailUrl(result.getThumbnailUrl());
         return picture;
     }
-
+    @Autowired
+    private UserAccountBloomFilter userAccountBloomFilter;
+    @Override
+    public void checkBloomFilter(Long userId, Long pictureId, String userAccount){
+        if (userId!=null&&!userIdBloomFilter.mightContain(userId)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"不存在该用户id");
+        if (pictureId!=null&&!userAccountBloomFilter.mightContain(userAccount)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"不存在该用户account");
+        if (userAccount!=null&&!pictureIdBloomFilter.mightContain(pictureId)) throw new BusinessException(ErrorCode.PARAMS_ERROR,"不存在该pictureId");
+    }
     @Override
     public QueryWrapper<Picture> getQueryWrapper(PictureQueryRequest pictureQueryRequest){
         QueryWrapper<Picture> queryWrapper=new QueryWrapper<>();
@@ -211,6 +226,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
         if (id != null) {
             System.out.println("查询图片ID: " + id);
+            if(!pictureIdBloomFilter.mightContain(id)) return null;
             queryWrapper.eq("id", id);
         }
         if (StrUtil.isNotBlank(name)) {
@@ -236,6 +252,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
         if (StrUtil.isNotBlank(picFormat)) {
             queryWrapper.eq("picFormat", picFormat);
+        }
+        if (userId!=null){
+            queryWrapper.eq("userId",userId);
+            if (!userIdBloomFilter.mightContain(userId)) return null;
         }
         for (String tag : tags) {
             if (StrUtil.isNotBlank(tag)) {
@@ -402,6 +422,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
 
     @Override
     public boolean deletePicture(Long pictureId, UserLoginVo loginUser) {
+        if (!pictureIdBloomFilter.mightContain(pictureId)) return false;
         if (loginUser == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "用户未登录");
         }
