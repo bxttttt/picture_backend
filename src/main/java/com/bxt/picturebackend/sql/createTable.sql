@@ -147,4 +147,6 @@ create table if not exists pictureDownload
     createTime datetime default CURRENT_TIMESTAMP not null comment '创建时间',
     isDeleted   tinyint  default 0                 not null comment '是否删除'
 
-)comment "下载图片"
+)comment "下载图片";
+
+alter table picture add column picColor varchar(512) null comment '图片主颜色';

@@ -1,4 +1,5 @@
 package com.bxt.picturebackend.service.impl;
+import java.awt.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
@@ -23,6 +24,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.bxt.picturebackend.bloomFilter.PictureIdBloomFilter;
 import com.bxt.picturebackend.bloomFilter.UserAccountBloomFilter;
 import com.bxt.picturebackend.bloomFilter.UserIdBloomFilter;
+import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.config.CosClientConfig;
 import com.bxt.picturebackend.constant.UserConstant;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
@@ -55,8 +57,6 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Connection;
-import org.jsoup.Jsoup;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -193,6 +193,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         picture.setUserId(userId);
         picture.setEditTime(new Date());
         picture.setThumbnailUrl(result.getThumbnailUrl());
+        picture.setPicColor(getPictureMainColor(result.getUrl()));
         return picture;
     }
     @Autowired
@@ -551,6 +552,50 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         if (Boolean.FALSE.equals(isNew)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"文件已上传过");
         }
+    }
+    @Override
+    public String getPictureMainColor(String url) {
+        String key = getKey(url);
+        try {
+            String mainColor = cosManager.getImageMainColor(key);
+            if (StrUtil.isBlank(mainColor)) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取图片主色调失败");
+            }
+            log.info("图片主色调: {}", mainColor);
+            return mainColor;
+        } catch (Exception e) {
+            log.error("获取图片主色调失败，key: {}", key, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取图片主色调失败");
+        }
+    }
+    @Autowired
+    private PictureMapper pictureMapper;
+    @Override
+    public Page<PictureVo> getPictureSimilarMainColor(String mainColor, PageRequest pageRequest) {
+        Color color1= new Color(Integer.parseInt(mainColor.replace("#", ""), 16));
+        System.out.println("color1 = " + color1);
+        // 提取 RGB 分量
+        int r1= color1.getRed();
+        int g1= color1.getGreen();
+        int b1= color1.getBlue();
+        QueryWrapper<Picture> queryWrapper = new QueryWrapper<>();
+        // 用欧氏距离计算相似度，排序
+        // 按欧氏距离排序（不取平方根，避免开销）
+        queryWrapper.last(String.format(
+                "ORDER BY POW((%d - CONV(SUBSTRING(picColor, 2, 2), 16, 10)), 2) + " +
+                        "POW((%d - CONV(SUBSTRING(picColor, 4, 2), 16, 10)), 2) + " +
+                        "POW((%d - CONV(SUBSTRING(picColor, 6, 2), 16, 10)), 2) ASC",
+                r1, g1, b1
+        ));
+
+        // 分页查询
+        Page<Picture> page = new Page<>(pageRequest.getCurrent(), pageRequest.getPageSize()); // 假设第一页，每页10条
+        Page<Picture> picturePage = pictureMapper.selectPage(page, queryWrapper);
+
+        // 转成 PictureVo
+        Page<PictureVo> resultPage = (Page<PictureVo>) picturePage.convert(p -> PictureVo.objToVo(p));
+        return resultPage;
+
     }
 
 

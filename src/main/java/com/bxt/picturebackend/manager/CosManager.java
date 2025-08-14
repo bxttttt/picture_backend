@@ -1,15 +1,14 @@
 package com.bxt.picturebackend.manager;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import com.bxt.picturebackend.config.CosClientConfig;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.exception.BusinessException;
 import com.bxt.picturebackend.exception.ErrorCode;
 import com.qcloud.cos.COSClient;
-import com.qcloud.cos.model.COSObject;
-import com.qcloud.cos.model.GetObjectRequest;
-import com.qcloud.cos.model.PutObjectRequest;
-import com.qcloud.cos.model.PutObjectResult;
+import com.qcloud.cos.model.*;
 import com.qcloud.cos.model.ciModel.persistence.PicOperations;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -17,9 +16,7 @@ import org.springframework.stereotype.Component;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.BufferedInputStream;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -139,6 +136,52 @@ public class CosManager {
         } catch (Exception e) {
             log.error("删除对象失败，key: {}", key, e);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "删除对象失败");
+        }
+    }
+    /**
+     * 获取图片主色调
+     *
+     * @param key 对象键
+     * @return 主色调
+     */
+    public String getImageMainColor(String key) {
+        try {
+            String bucketName = cosClientConfig.getBucket();
+            String rule = "imageAve";
+
+            // 构造请求并添加 imageAve 参数
+            GetObjectRequest getObj = new GetObjectRequest(bucketName, key);
+            getObj.putCustomQueryParameter(rule, null);
+
+            // 获取对象
+            COSObject cosObject = cosClient.getObject(getObj);
+            COSObjectInputStream objectContent = cosObject.getObjectContent();
+
+            // 读取 JSON
+            StringBuilder jsonBuilder = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(objectContent, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    jsonBuilder.append(line);
+                }
+            }
+
+            // 解析 JSON 获取 RGB
+            JSONObject json = JSONUtil.parseObj(jsonBuilder.toString());
+            System.out.println("json = " + json);
+
+            String rgbHex = json.getStr("RGB");
+            System.out.println("rgbHex = " + rgbHex);
+
+            if (rgbHex != null && rgbHex.startsWith("0x")) {
+                rgbHex = "#" + rgbHex.substring(2);
+            }
+
+            return rgbHex;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
         }
     }
 

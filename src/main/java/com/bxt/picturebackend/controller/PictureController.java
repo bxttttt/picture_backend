@@ -1,6 +1,7 @@
 package com.bxt.picturebackend.controller;
 
 import com.bxt.picturebackend.annotation.VIPCheck;
+import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.config.RabbitMQConfig;
 import com.bxt.picturebackend.imageSearch.model.ImageSearchResult;
 import com.bxt.picturebackend.imageSearch.sub.GetImagePageUrlApi;
@@ -359,6 +360,32 @@ public class PictureController {
         }
         List<String> results = GetImagePageUrlApi.getUrlList(pictureService.getById(pictureId).getUrl());
         return ResultUtils.success(results);
+    }
+    @PostMapping("/getPictureMainColor")
+    public BaseResponse<String> getPictureMainColor(@RequestParam Long pictureId, HttpServletRequest httpServletRequest) {
+        UserLoginVo userLoginVo = userService.getCurrentUser(httpServletRequest);
+        if (userLoginVo == null) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "用户未登录");
+        }
+        String url = pictureService.getById(pictureId).getUrl();
+        if (url == null || url.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "图片URL不能为空");
+        }
+        String mainColor = pictureService.getPictureMainColor(url);
+        return ResultUtils.success(mainColor);
+    }
+    @PostMapping("/getPictureSimilarMainColor")
+    public BaseResponse<Page<PictureVo>> getPictureSimilarMainColor(@RequestParam Long pictureId, @RequestBody PageRequest pageRequest, HttpServletRequest httpServletRequest) {
+        UserLoginVo userLoginVo = userService.getCurrentUser(httpServletRequest);
+        if (userLoginVo == null) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "用户未登录");
+        }
+        Picture picture = pictureService.getById(pictureId);
+        if (picture == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
+        }
+        Page<PictureVo> similarPictures = pictureService.getPictureSimilarMainColor(picture.getPicColor(), pageRequest);
+        return ResultUtils.success(similarPictures);
     }
 
 

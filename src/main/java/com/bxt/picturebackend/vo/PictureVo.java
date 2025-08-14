@@ -87,6 +87,10 @@ public class PictureVo implements Serializable {
      * 缩略图 URL
      */
     private String thumbnailUrl;
+    /**
+     * 图片主颜色
+     */
+    private String picColor;
 
     public static Picture voToObj(PictureVo pictureVo){
         if (pictureVo == null) {

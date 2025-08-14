@@ -2,6 +2,7 @@ package com.bxt.picturebackend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.dto.picture.PictureDownloadRequest;
 import com.bxt.picturebackend.dto.picture.PictureQueryRequest;
@@ -58,4 +59,8 @@ public interface PictureService extends IService<Picture> {
 
     void isDuplicateUpload(String fileMd, String userIdMd);
 
+    String getPictureMainColor(String url);
+
+
+    Page<PictureVo> getPictureSimilarMainColor(String mainColor, PageRequest pageRequest);
 }
