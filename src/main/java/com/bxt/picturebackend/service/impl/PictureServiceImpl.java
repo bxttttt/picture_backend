@@ -7,7 +7,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import ch.qos.logback.core.joran.conditional.ThenAction;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.core.util.URLUtil;
@@ -52,15 +51,20 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.qcloud.cos.model.COSObject;
 import com.qcloud.cos.model.COSObjectInputStream;
 import com.qcloud.cos.utils.IOUtils;
+import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Connection;
+import org.jsoup.Jsoup;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+
 
 /**
 * @author bxt
@@ -98,6 +102,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
             }
         }
+
         // 上传图片，得到信息
         String picturePrefix = "public/"+loginUser.getId().toString();
         UploadPictureResult uploadResult = fileManager.uploadPicture(multipartFile, picturePrefix);
@@ -413,7 +418,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         return imageUrls;
     }
     private String getKeyFromUrl(String url) {
-        String domain = "https://bxttttt-1321961985.cos.ap-shanghai.myqcloud.com/";
+        String domain = cosClientConfig.getHost()+"/";
         if (url != null && url.startsWith(domain)) {
             return url.substring(domain.length());
         }
@@ -536,6 +541,16 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             return url.substring(host.length());
         }
         return url; // 如果不是COS域名开头，就原样返回或抛异常
+    }
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+    @Override
+    public void isDuplicateUpload(String fileMd, String userIdMd){
+        String redisKey="upload:file:" + fileMd+userIdMd;
+        Boolean isNew = stringRedisTemplate.opsForValue().setIfAbsent(redisKey, "1", 1, TimeUnit.MINUTES);
+        if (Boolean.FALSE.equals(isNew)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"文件已上传过");
+        }
     }
 
 

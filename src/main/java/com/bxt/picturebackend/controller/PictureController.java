@@ -1,5 +1,9 @@
 package com.bxt.picturebackend.controller;
 
+import com.bxt.picturebackend.annotation.VIPCheck;
+import com.bxt.picturebackend.config.RabbitMQConfig;
+import com.bxt.picturebackend.imageSearch.model.ImageSearchResult;
+import com.bxt.picturebackend.imageSearch.sub.GetImagePageUrlApi;
 import com.google.common.hash.BloomFilter;
 import cn.hutool.core.lang.copier.SrcToDestCopier;
 import cn.hutool.json.JSONUtil;
@@ -24,11 +28,15 @@ import com.bxt.picturebackend.vo.UserLoginVo;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.hash.Funnels;
+import com.qcloud.cos.demo.ci.CIUniversalDemo;
 import com.qcloud.cos.event.DeliveryMode;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.checkerframework.checker.nullness.qual.AssertNonNullIfNonNull;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -37,10 +45,20 @@ import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+//bxt@bxtdeMacBook-Air picture-backend % redis-cli
+//127.0.0.1:6379> ping
+//PONG
+//127.0.0.1:6379> CONFIG SET appendonly yes
+//OK
+//127.0.0.1:6379> CONFIG SET appendfsync everysec
+//OK
+//127.0.0.1:6379>
+//在终端动态配置redis cli，AOF持久化
 @RestController
 @Slf4j
 @RequestMapping("/picture")
@@ -49,13 +67,17 @@ public class PictureController {
     private UserService userService;
     @Autowired
     private PictureService pictureService;
+    @Resource
+    RabbitTemplate rabbitTemplate;
     @PostMapping("/upload/file")
     @AuthCheck(mustRole = UserConstant.ROLE_ADMIN)
     public BaseResponse<PictureVo> uploadPicture(@RequestPart("file") MultipartFile multipartFile,
                                                  @RequestPart(value = "pictureUploadRequest", required = false) PictureUploadRequest pictureUploadRequest,
-                                                 HttpServletRequest httpServletRequest) {
+                                                 HttpServletRequest httpServletRequest) throws IOException {
         UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
+        pictureService.isDuplicateUpload(DigestUtils.md5DigestAsHex(multipartFile.getBytes()),DigestUtils.md5DigestAsHex(loginUser.getId().toString().getBytes(StandardCharsets.UTF_8)));
         PictureVo pictureVo = pictureService.uploadPicture(multipartFile, pictureUploadRequest, userService.getById(loginUser.getId()));
+        rabbitTemplate.convertAndSend(RabbitMQConfig.PICTURE_CACHE_INVALIDATE_QUEUE, pictureVo.getId());
         return ResultUtils.success(pictureVo);
     }
     @PostMapping("/upload/url")
@@ -63,20 +85,23 @@ public class PictureController {
     public BaseResponse<PictureVo> uploadPicture(@RequestBody PictureUploadRequest pictureUploadRequest,
                                                  HttpServletRequest httpServletRequest) {
         UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
-        System.out.println(pictureUploadRequest);
+        pictureService.isDuplicateUpload(DigestUtils.md5DigestAsHex(pictureUploadRequest.getFileUrl().getBytes()),DigestUtils.md5DigestAsHex(loginUser.getId().toString().getBytes(StandardCharsets.UTF_8)));
         PictureVo pictureVo = pictureService.uploadPicture(pictureUploadRequest, userService.getById(loginUser.getId()));
+        rabbitTemplate.convertAndSend(RabbitMQConfig.PICTURE_CACHE_INVALIDATE_QUEUE, pictureVo.getId());
         return ResultUtils.success(pictureVo);
     }
     @PostMapping("/delete")
     public BaseResponse<Boolean> deletePicture(@RequestBody PictureDeleteRequest pictureDeleteRequest, HttpServletRequest httpServletRequest) {
         UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
         Long pictureId = pictureDeleteRequest.getId();
+        System.out.println("pictureId"+pictureId);
         Long userId=pictureService.getById(pictureId).getUserId();
         Long loginUserId = loginUser.getId();
         if (!Objects.equals(loginUser.getUserRole(), UserConstant.ROLE_ADMIN) && !userId.equals(loginUserId)) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限删除他人图片");
         }
         boolean result = pictureService.deletePicture(pictureId, loginUser);
+        rabbitTemplate.convertAndSend(RabbitMQConfig.PICTURE_CACHE_INVALIDATE_QUEUE, pictureId);
         if (!result) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片删除失败");
         }
@@ -102,6 +127,7 @@ public class PictureController {
         if (!result) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片更新失败");
         }
+        rabbitTemplate.convertAndSend(RabbitMQConfig.PICTURE_CACHE_INVALIDATE_QUEUE, pictureId);
         return ResultUtils.success(result);
     }
     @PostMapping("/getPictureById")
@@ -218,7 +244,7 @@ public class PictureController {
     private Cache<String,String> cache = Caffeine.newBuilder().maximumSize(1000) // 最大缓存条数
             .expireAfterWrite(10, TimeUnit.MINUTES) // 写入后10分钟过期
             .build();
-
+    //多级缓存的缺点是首次查询会比较慢，但如果查找缓存中的数据，会很快，只需要二分之一到三分之一的时间（和用自带的缓存相比）
     @PostMapping("/list/page/vo/multiLevelCache")
     public BaseResponse<Page<PictureVo>> listPictureVoByPageFromMultiLevelCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest httpServletRequest) {
         long current = pictureQueryRequest.getCurrent();
@@ -288,8 +314,10 @@ public class PictureController {
                                                            @RequestParam(defaultValue = "10") int count,
                                                            @RequestParam(defaultValue = "admin/fetch") String uploadPathPrefix,HttpServletRequest httpServletRequest) {
         List<String> imgUrls = pictureService.getImageUrlsFromBaidu(keyword, count);
+
         List<PictureVo> results = new ArrayList<>();
         UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
+        pictureService.isDuplicateUpload(DigestUtils.md5DigestAsHex(keyword.getBytes(StandardCharsets.UTF_8)),DigestUtils.md5DigestAsHex(loginUser.getId().toString().getBytes(StandardCharsets.UTF_8)));
         System.out.println("img"+imgUrls);
         for (String imgUrl : imgUrls) {
             System.out.println(imgUrl);
@@ -322,6 +350,17 @@ public class PictureController {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR);
         }
     }
+    @VIPCheck(mustVIP = UserConstant.USER_VIP_YES)
+    @PostMapping("/searchSimilarPictures")
+    public BaseResponse<List<String>> searchSimilarPictures(@RequestParam Long pictureId, HttpServletRequest httpServletRequest) {
+        UserLoginVo userLoginVo = userService.getCurrentUser(httpServletRequest);
+        if (userLoginVo == null) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "用户未登录");
+        }
+        List<String> results = GetImagePageUrlApi.getUrlList(pictureService.getById(pictureId).getUrl());
+        return ResultUtils.success(results);
+    }
+
 
 
 

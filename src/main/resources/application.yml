@@ -3,6 +3,11 @@ server:
   servlet:
     context-path: /api
 spring:
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
   session:
     storage-type: redis  # 使用 Redis 存储会话
     timeout: 2592000  # 会话超时时间，单位为秒
