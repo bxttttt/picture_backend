@@ -1,5 +1,7 @@
 package com.bxt.picturebackend.controller;
 
+import com.bxt.picturebackend.aliYunAi.CreateTaskResponse;
+import com.bxt.picturebackend.aliYunAi.QueryTaskResponse;
 import com.bxt.picturebackend.annotation.VIPCheck;
 import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.config.RabbitMQConfig;
@@ -386,6 +388,31 @@ public class PictureController {
         }
         Page<PictureVo> similarPictures = pictureService.getPictureSimilarMainColor(picture.getPicColor(), pageRequest);
         return ResultUtils.success(similarPictures);
+    }
+    /**
+     * Step1: 创建扩图任务
+     */
+    @PostMapping("/outPainting")
+    @VIPCheck(mustVIP = UserConstant.USER_VIP_YES)
+    public BaseResponse<CreateTaskResponse> createOutPaintingTask(@RequestParam Long pictureId, HttpServletRequest httpServletRequest) throws Exception {
+        UserLoginVo userLoginVo = userService.getCurrentUser(httpServletRequest);
+        if (userLoginVo == null) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "用户未登录");
+        }
+        Picture picture = pictureService.getById(pictureId);
+        if (picture == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
+        }
+        return ResultUtils.success(pictureService.createOutPaintingTask(picture.getUrl()));
+    }
+
+    /**
+     * Step2: 查询扩图任务
+     */
+    @GetMapping("/outPainting/{taskId}")
+    @VIPCheck(mustVIP = UserConstant.USER_VIP_YES)
+    public BaseResponse<QueryTaskResponse> queryOutPaintingTask(@PathVariable String taskId) {
+        return ResultUtils.success(pictureService.queryOutPaintingTask(taskId));
     }
 
 

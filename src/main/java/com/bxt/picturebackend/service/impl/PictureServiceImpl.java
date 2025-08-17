@@ -21,6 +21,9 @@ import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.bxt.picturebackend.aliYunAi.CreateTaskResponse;
+import com.bxt.picturebackend.aliYunAi.DashScopeClient;
+import com.bxt.picturebackend.aliYunAi.QueryTaskResponse;
 import com.bxt.picturebackend.bloomFilter.PictureIdBloomFilter;
 import com.bxt.picturebackend.bloomFilter.UserAccountBloomFilter;
 import com.bxt.picturebackend.bloomFilter.UserIdBloomFilter;
@@ -596,6 +599,26 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         Page<PictureVo> resultPage = (Page<PictureVo>) picturePage.convert(p -> PictureVo.objToVo(p));
         return resultPage;
 
+    }
+    @Autowired
+    private DashScopeClient dashScopeClient;
+
+    @Override
+    public CreateTaskResponse createOutPaintingTask(String imageUrl) {
+        try {
+            return dashScopeClient.createTask(imageUrl);
+        } catch (Exception e) {
+            throw new RuntimeException("创建扩图任务失败", e);
+        }
+    }
+
+    @Override
+    public QueryTaskResponse queryOutPaintingTask(String taskId) {
+        try {
+            return dashScopeClient.queryTask(taskId);
+        } catch (Exception e) {
+            throw new RuntimeException("查询扩图任务失败", e);
+        }
     }
 
 

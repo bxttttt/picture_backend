@@ -2,6 +2,8 @@ package com.bxt.picturebackend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bxt.picturebackend.aliYunAi.CreateTaskResponse;
+import com.bxt.picturebackend.aliYunAi.QueryTaskResponse;
 import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.dto.picture.PictureDownloadRequest;
@@ -63,4 +65,8 @@ public interface PictureService extends IService<Picture> {
 
 
     Page<PictureVo> getPictureSimilarMainColor(String mainColor, PageRequest pageRequest);
+
+    CreateTaskResponse createOutPaintingTask(String imageUrl);
+
+    QueryTaskResponse queryOutPaintingTask(String taskId);
 }

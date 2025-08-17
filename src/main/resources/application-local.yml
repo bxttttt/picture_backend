@@ -6,3 +6,7 @@ cos:
     secretKey: "kLnLnCZ5XnrjR0Wr1zjHdmiU5Tgmnkoq"
     region: "ap-shanghai"
     bucket: "bxttttt-1321961985"
+# 阿里云ai配置
+aliyun:
+  ai:
+    apiKey: "sk-6b7118c3e2cf4d17bb985158ba7374ef"
