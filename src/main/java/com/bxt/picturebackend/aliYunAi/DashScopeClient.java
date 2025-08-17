@@ -4,6 +4,7 @@ import com.bxt.picturebackend.config.AliyunAiConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -13,6 +14,8 @@ public class DashScopeClient {
     private static final String BASE_URL = "https://dashscope.aliyuncs.com/api/v1";
     private static final OkHttpClient client = new OkHttpClient();
     private static final ObjectMapper mapper = new ObjectMapper();
+    @Autowired
+    private BCryptPasswordEncoder passwordEncoder;
 
 //    public DashScopeClient(AliyunAiConfig aliyunAiConfig) {
 //        this.aliyunAiConfig = aliyunAiConfig;
@@ -31,9 +34,13 @@ public class DashScopeClient {
         request.setInput(input);
 
         OutPaintingRequest.Parameters params = new OutPaintingRequest.Parameters();
-        params.setAngle(0);
-        params.setX_scale(1.5f);
-        params.setY_scale(1.5f);
+//        params.setAngle(0);
+//        params.setX_scale(1.5f);
+//        params.setY_scale(1.5f);
+        params.setLeft_offset(200);
+        params.setRight_offset(150);
+        params.setBest_quality(false);
+        params.setLimit_image_size(true);
         request.setParameters(params);
 
         String json = mapper.writeValueAsString(request);
