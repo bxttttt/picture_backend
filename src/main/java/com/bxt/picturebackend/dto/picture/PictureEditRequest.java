@@ -30,4 +30,5 @@ public class PictureEditRequest implements Serializable {
      */
     private List<String> tags;
 
+
 }

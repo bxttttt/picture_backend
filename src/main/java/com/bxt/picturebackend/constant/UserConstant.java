@@ -13,4 +13,17 @@ public interface UserConstant {
     int USER_VIP_YES = 1; // 会员状态
     String USER_DEFAULT_PASSWORD="12345678";
     int NOT_VIP_MAX_DOWNLOAD_TIMES=3;
+    // 空间角色
+    String spaceRoleViewer="viewer";
+    String spaceRoleEditor="editor";
+    String spaceRoleAdmin="admin";
+    String spaceRoleCreator="creator";
+    // 权限标识
+    public static final String PERM_SPACE_EDIT_MEMBER_ROLE = "space:edit_member_role";
+    public static final String PERM_SPACE_ADD_MEMBER = "space:add_member";
+    public static final String PERM_SPACE_REMOVE_MEMBER = "space:remove_member";
+    public static final String PERM_SPACE_DELETE = "space:delete";
+    public static final String PERM_SPACE_ADD_PICTURE = "space:add_picture";
+    public static final String PERM_SPACE_REMOVE_PICTURE = "space:remove_picture";
+    public static final String PERM_SPACE_VIEW = "space:view";
 }

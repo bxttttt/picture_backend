@@ -127,4 +127,8 @@ public class Picture implements Serializable {
      * 图片主颜色
      */
     private String picColor;
+    /**
+     * 图片所属空间
+     */
+    private Long spaceId;
 }
