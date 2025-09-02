@@ -17,31 +17,65 @@ import org.springframework.web.bind.annotation.PostMapping;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+//
+//@Component
+//public class PictureIdBloomFilter {
+//    @Autowired
+//    private PictureMapper pictureMapper;
+//    private BloomFilter bloomFilter;
+//
+//    @PostConstruct
+//    public void init(){
+//        QueryWrapper<Picture> queryWrapper=new QueryWrapper<>();
+//        List<Picture> pictures=pictureMapper.selectList(queryWrapper);
+//        int expectedInsertions= pictures.isEmpty() ?1000:pictures.size();
+//        bloomFilter=BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8),
+//                expectedInsertions,
+//                0.05) ;
+//        for (Picture picture:pictures){
+//            bloomFilter.put(picture.getId().toString());
+//        }
+//        System.out.println("布隆过滤器初始化完成，共加载 PictureId: " + pictures.size());
+//    }
+//    public boolean mightContain(Long id){
+//        return bloomFilter != null && bloomFilter.mightContain(String.valueOf(id));
+//    }
+//    public void add(Long id){
+//        bloomFilter.put(id.toString());
+//    }
+//
+//}
 
 @Component
 public class PictureIdBloomFilter {
+
     @Autowired
     private PictureMapper pictureMapper;
-    private BloomFilter bloomFilter;
 
-    @PostConstruct
-    public void init(){
-        QueryWrapper<Picture> queryWrapper=new QueryWrapper<>();
-        List<Picture> pictures=pictureMapper.selectList(queryWrapper);
-        int expectedInsertions= pictures.isEmpty() ?1000:pictures.size();
-        bloomFilter=BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8),
-                expectedInsertions,
-                0.05) ;
-        for (Picture picture:pictures){
-            bloomFilter.put(picture.getId().toString());
+    private BloomFilter<String> bloomFilter;
+    private boolean initialized = false;
+
+    private synchronized void initIfNeeded() {
+        if (!initialized) {
+            List<Picture> pictures = pictureMapper.selectList(null);
+            int expectedInsertions = pictures.isEmpty() ? 1000 : pictures.size();
+            bloomFilter = BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8),
+                    expectedInsertions, 0.05);
+            for (Picture picture : pictures) {
+                bloomFilter.put(picture.getId().toString());
+            }
+            initialized = true;
+            System.out.println("布隆过滤器初始化完成，共加载 PictureId: " + pictures.size());
         }
-        System.out.println("布隆过滤器初始化完成，共加载 PictureId: " + pictures.size());
     }
-    public boolean mightContain(Long id){
+
+    public boolean mightContain(Long id) {
+        initIfNeeded();
         return bloomFilter != null && bloomFilter.mightContain(String.valueOf(id));
     }
-    public void add(Long id){
+
+    public void add(Long id) {
+        initIfNeeded();
         bloomFilter.put(id.toString());
     }
-
 }

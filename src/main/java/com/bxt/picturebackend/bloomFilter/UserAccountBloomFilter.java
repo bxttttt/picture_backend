@@ -11,29 +11,62 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-
+//
+//@Component
+//public class UserAccountBloomFilter {
+//    @Autowired
+//    private UserMapper userMapper;
+//    private BloomFilter<String> bloomFilter;
+//    @PostConstruct
+//    public void init(){
+//        QueryWrapper<User> queryWrapper=new QueryWrapper<>();
+//        List<User> users=userMapper.selectList(queryWrapper);
+//        int expectedInsertions= users.isEmpty() ?1000:users.size();
+//        bloomFilter=BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8),
+//                expectedInsertions,
+//                0.05) ;
+//        for (User user:users){
+//            bloomFilter.put(user.getUserAccount());
+//        }
+//        System.out.println("布隆过滤器初始化完成，共加载 UserId: " + users.size());
+//    }
+//    public boolean mightContain(String userAccount){
+//        return bloomFilter != null && bloomFilter.mightContain(userAccount);
+//    }
+//    public void add(String userAccount){
+//        bloomFilter.put(userAccount);
+//    }
+//}
 @Component
 public class UserAccountBloomFilter {
+
     @Autowired
     private UserMapper userMapper;
+
     private BloomFilter<String> bloomFilter;
-    @PostConstruct
-    public void init(){
-        QueryWrapper<User> queryWrapper=new QueryWrapper<>();
-        List<User> users=userMapper.selectList(queryWrapper);
-        int expectedInsertions= users.isEmpty() ?1000:users.size();
-        bloomFilter=BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8),
-                expectedInsertions,
-                0.05) ;
-        for (User user:users){
-            bloomFilter.put(user.getUserAccount());
+    private boolean initialized = false;
+
+    private synchronized void initIfNeeded() {
+        if (!initialized) {
+            List<User> users = userMapper.selectList(null);
+            int expectedInsertions = users.isEmpty() ? 1000 : users.size();
+            bloomFilter = BloomFilter.create(Funnels.stringFunnel(StandardCharsets.UTF_8),
+                    expectedInsertions, 0.05);
+            for (User user : users) {
+                bloomFilter.put(user.getUserAccount());
+            }
+            initialized = true;
+            System.out.println("布隆过滤器初始化完成，共加载 UserAccount: " + users.size());
         }
-        System.out.println("布隆过滤器初始化完成，共加载 UserId: " + users.size());
     }
-    public boolean mightContain(String userAccount){
+
+    public boolean mightContain(String userAccount) {
+        initIfNeeded();
         return bloomFilter != null && bloomFilter.mightContain(userAccount);
     }
-    public void add(String userAccount){
+
+    public void add(String userAccount) {
+        initIfNeeded();
         bloomFilter.put(userAccount);
     }
 }

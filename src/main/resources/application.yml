@@ -3,13 +3,45 @@ server:
   servlet:
     context-path: /api
 spring:
+  datasource:
+#    url: jdbc:mysql://localhost:3306/picture_backend
+#    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: 12345678
+    url: jdbc:shardingsphere:classpath:sharding-config.yml
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+  #  shardingsphere:
+#    datasource:
+#      names: db0
+#      db0:
+#        type: com.zaxxer.hikari.HikariDataSource
+#        driver-class-name: com.mysql.cj.jdbc.Driver
+#        url: jdbc:mysql://localhost:3306/picture_backend
+#        username: root
+#        password: 12345678
+#    rules:
+#      sharding:
+#        tables:
+#          picture:
+#            actual-data-nodes: db0.picture_$->{0..7}
+#            table-strategy:
+#              standard:
+#                sharding-column: userId
+#                sharding-algorithm-name: userIdMod
+#        sharding-algorithms:
+#          userIdMod:
+#            type: INLINE
+#            props:
+#              algorithm-expression: picture_$->{userId % 8}
+#    props:
+#      sql-show: true
   rabbitmq:
     host: localhost
     port: 5672
     username: guest
     password: guest
   session:
-    storage-type: redis  # 使用 Redis 存储会话
+    store-type: redis  # 使用 Redis 存储会话
     timeout: 2592000  # 会话超时时间，单位为秒
   data:
     redis:
@@ -19,11 +51,7 @@ spring:
       timeout: 5000ms   # 连接超时时间，可根据需求调整
   application:
     name: picture-backend
-  datasource:
-    url: jdbc:mysql://localhost:3306/picture_backend
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    username: root
-    password: 12345678
+
   profiles:
     active: local  # 设置当前激活的配置文件为 local
   servlet:
@@ -31,6 +59,7 @@ spring:
       max-file-size: 10MB  # 设置上传文件的最大大小
   main:
     allow-circular-references: true
+
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false
@@ -57,4 +86,6 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
-
+#logging:
+#  level:
+#    org.shardingsphere: DEBUG

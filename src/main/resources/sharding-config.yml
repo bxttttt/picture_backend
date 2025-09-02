@@ -1,0 +1,26 @@
+dataSources:
+  db0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://localhost:3306/picture_backend
+    username: root
+    password: 12345678
+
+rules:
+  - !SHARDING
+    tables:
+      picture:
+        actualDataNodes: db0.picture_${0..7}
+        tableStrategy:
+          standard:
+            shardingColumn: userId
+            shardingAlgorithmName: userIdMod
+
+    shardingAlgorithms:
+      userIdMod:
+        type: INLINE
+        props:
+          algorithm-expression: picture_$->{userId % 8}
+
+props:
+  sql-show: true
