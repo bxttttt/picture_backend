@@ -15,6 +15,14 @@ rules:
           standard:
             shardingColumn: userId
             shardingAlgorithmName: userIdMod
+      user:
+        actualDataNodes: db0.user
+      spaceUser:
+        actualDataNodes: db0.spaceUser
+      userBlacklist:
+        actualDataNodes: db0.userBlacklist
+
+
 
     shardingAlgorithms:
       userIdMod:
