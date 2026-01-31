@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.bxt.picturebackend.annotation.AuthCheck;
 import com.bxt.picturebackend.annotation.RestrictedCheck;
 import com.bxt.picturebackend.annotation.VIPCheck;
+import com.bxt.picturebackend.bloomFilter.UserIdBloomFilter;
 import com.bxt.picturebackend.common.BaseResponse;
 import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.common.ResultUtils;
@@ -39,6 +40,8 @@ import java.util.concurrent.TimeUnit;
 public class UserController {
     @Autowired
     private UserService userService;
+    @Autowired
+    UserIdBloomFilter userIdBloomFilter;
     /*
     用户注册接口
      */
@@ -289,6 +292,9 @@ public class UserController {
         }
         if (request == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "用户未登录或会话已过期");
+        }
+        if (!userIdBloomFilter.mightContain(id)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在");
         }
         User user = userService.getById(id);
         if (user == null) {
