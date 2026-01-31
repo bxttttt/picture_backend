@@ -51,6 +51,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 //bxt@bxtdeMacBook-Air picture-backend % redis-cli
@@ -311,29 +314,78 @@ public class PictureController {
         boolean result = pictureService.doPictureReview(pictureReviewRequest, loginUser.getId());
         return ResultUtils.success(result);
     }
+//    @PostMapping("/picture/autoFetch")
+//    @AuthCheck(mustRole = UserConstant.ROLE_ADMIN)
+//    public BaseResponse<List<PictureVo>> autoFetchPictures(@RequestParam String keyword,
+//                                                           @RequestParam(defaultValue = "10") int count,
+//                                                           @RequestParam(defaultValue = "admin/fetch") String uploadPathPrefix,HttpServletRequest httpServletRequest) {
+//        List<String> imgUrls = pictureService.getImageUrlsFromBaidu(keyword, count);
+//
+//        List<PictureVo> results = new ArrayList<>();
+//        UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
+//        pictureService.isDuplicateUpload(DigestUtils.md5DigestAsHex(keyword.getBytes(StandardCharsets.UTF_8)),DigestUtils.md5DigestAsHex(loginUser.getId().toString().getBytes(StandardCharsets.UTF_8)));
+//        System.out.println("img"+imgUrls);
+//        for (String imgUrl : imgUrls) {
+//            System.out.println(imgUrl);
+//            try{
+//                PictureUploadRequest pictureUploadRequest=new PictureUploadRequest();
+//                pictureUploadRequest.setFileUrl(imgUrl);
+//                PictureVo uploadPictureResult=pictureService.uploadPicture(pictureUploadRequest, userService.getById(loginUser.getId()));
+//            }catch (Exception e){
+//                log.error("图片上传失败,图片地址:{}",imgUrl,e);
+//            }
+//        }
+//        return ResultUtils.success(results);
+//    }
     @PostMapping("/picture/autoFetch")
     @AuthCheck(mustRole = UserConstant.ROLE_ADMIN)
-    public BaseResponse<List<PictureVo>> autoFetchPictures(@RequestParam String keyword,
-                                                           @RequestParam(defaultValue = "10") int count,
-                                                           @RequestParam(defaultValue = "admin/fetch") String uploadPathPrefix,HttpServletRequest httpServletRequest) {
+    public BaseResponse<List<PictureVo>> autoFetchPictures(
+            @RequestParam String keyword,
+            @RequestParam(defaultValue = "10") int count,
+            @RequestParam(defaultValue = "admin/fetch") String uploadPathPrefix,
+            HttpServletRequest httpServletRequest) {
+
         List<String> imgUrls = pictureService.getImageUrlsFromBaidu(keyword, count);
 
-        List<PictureVo> results = new ArrayList<>();
         UserLoginVo loginUser = userService.getCurrentUser(httpServletRequest);
-        pictureService.isDuplicateUpload(DigestUtils.md5DigestAsHex(keyword.getBytes(StandardCharsets.UTF_8)),DigestUtils.md5DigestAsHex(loginUser.getId().toString().getBytes(StandardCharsets.UTF_8)));
-        System.out.println("img"+imgUrls);
-        for (String imgUrl : imgUrls) {
-            System.out.println(imgUrl);
-            try{
-                PictureUploadRequest pictureUploadRequest=new PictureUploadRequest();
-                pictureUploadRequest.setFileUrl(imgUrl);
-                PictureVo uploadPictureResult=pictureService.uploadPicture(pictureUploadRequest, userService.getById(loginUser.getId()));
-            }catch (Exception e){
-                log.error("图片上传失败,图片地址:{}",imgUrl,e);
-            }
-        }
+
+        // 幂等校验（你原来的逻辑，保留）
+        pictureService.isDuplicateUpload(
+                DigestUtils.md5DigestAsHex(keyword.getBytes(StandardCharsets.UTF_8)),
+                DigestUtils.md5DigestAsHex(loginUser.getId().toString().getBytes(StandardCharsets.UTF_8))
+        );
+
+        // ⭐ 自定义线程池（IO 密集型，推荐 2 * CPU）
+        ExecutorService uploadPool = Executors.newFixedThreadPool(16);
+
+        List<CompletableFuture<PictureVo>> futures = imgUrls.stream()
+                .map(imgUrl ->
+                        CompletableFuture.supplyAsync(() -> {
+                            try {
+                                PictureUploadRequest request = new PictureUploadRequest();
+                                request.setFileUrl(imgUrl);
+                                return pictureService.uploadPicture(
+                                        request,
+                                        userService.getById(loginUser.getId())
+                                );
+                            } catch (Exception e) {
+                                log.error("图片上传失败, 图片地址: {}", imgUrl, e);
+                                return null;
+                            }
+                        }, uploadPool)
+                ).toList();
+
+        // 等待全部完成
+        List<PictureVo> results = futures.stream()
+                .map(CompletableFuture::join)   // 不抛异常（异常已被吞掉）
+                .filter(Objects::nonNull)        // 过滤失败的
+                .toList();
+
+        uploadPool.shutdown();
+
         return ResultUtils.success(results);
     }
+
 
     @PostMapping("/downloadPicture/watermarking/blind")
     public void downloadPictureBlindWaterMarking(@RequestBody PictureDownloadRequest pictureDownloadRequest, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse){

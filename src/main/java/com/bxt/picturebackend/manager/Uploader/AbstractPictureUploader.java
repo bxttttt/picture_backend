@@ -2,7 +2,9 @@ package com.bxt.picturebackend.manager.Uploader;
 
 import cn.hutool.core.collection.CollUtil;
 import com.bxt.picturebackend.config.CosClientConfig;
+import com.bxt.picturebackend.config.RabbitMQConfig;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
+import com.bxt.picturebackend.dto.picture.PictureFileDeleteEvent;
 import com.bxt.picturebackend.exception.BusinessException;
 import com.bxt.picturebackend.exception.ErrorCode;
 import com.bxt.picturebackend.manager.CosManager;
@@ -13,6 +15,7 @@ import com.qcloud.cos.model.ciModel.persistence.ImageInfo;
 import com.qcloud.cos.model.ciModel.persistence.ProcessResults;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.context.annotation.Lazy;
 
 import java.io.File;
@@ -31,6 +34,8 @@ public abstract class AbstractPictureUploader<T>{
     @Resource
     @Lazy
     protected FileManager fileManager;
+    @Resource
+    protected RabbitTemplate rabbitTemplate;
 
     public final UploadPictureResult uploadPicture(T source,String uploadPathPrefix){
         validPicture(source);
@@ -48,7 +53,12 @@ public abstract class AbstractPictureUploader<T>{
                 CIObject compressedObject = objectList.get(0);
                 CIObject thumbnailObject = objectList.get(1);
                 // 删除原图
-                fileManager.deleteOriginPicture(compressedObject.getKey());
+//                fileManager.deleteOriginPicture(compressedObject.getKey());
+                rabbitTemplate.convertAndSend(
+                        RabbitMQConfig.PICTURE_FILE_DELETE_QUEUE,
+                        new PictureFileDeleteEvent(compressedObject.getKey())
+                );
+
                 return fileManager.buildResult(originFilename,compressedObject,thumbnailObject);
             }
         }catch (Exception e){

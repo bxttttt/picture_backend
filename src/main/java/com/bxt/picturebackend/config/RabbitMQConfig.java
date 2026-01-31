@@ -13,4 +13,12 @@ public class RabbitMQConfig {
     public Queue pictureUploadQueue() {
         return new Queue(PICTURE_CACHE_INVALIDATE_QUEUE);
     }
+
+    public static final String PICTURE_FILE_DELETE_QUEUE =
+            "picture.file.delete.queue";
+
+    @Bean
+    public Queue pictureFileDeleteQueue() {
+        return new Queue(PICTURE_FILE_DELETE_QUEUE, true);
+    }
 }
