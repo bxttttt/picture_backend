@@ -69,4 +69,7 @@ public interface PictureService extends IService<Picture> {
     CreateTaskResponse createOutPaintingTask(String imageUrl);
 
     QueryTaskResponse queryOutPaintingTask(String taskId);
+
+    void incrUserUploadCount(Long userId);
+
 }

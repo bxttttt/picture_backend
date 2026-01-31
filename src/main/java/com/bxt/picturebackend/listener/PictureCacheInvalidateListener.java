@@ -10,6 +10,8 @@ import org.springframework.util.DigestUtils;
 
 import java.nio.charset.StandardCharsets;
 
+import static com.bxt.picturebackend.constant.RedisKeyConstant.PICTURE_ID_PREFIX;
+
 @Component
 @Slf4j
 public class PictureCacheInvalidateListener {
@@ -23,7 +25,7 @@ public class PictureCacheInvalidateListener {
     public void handleCacheInvalidate(Long pictureId) {
         try {
             String hashKey = DigestUtils.md5DigestAsHex(pictureId.toString().getBytes(StandardCharsets.UTF_8));
-            String redisKey = "picture:id:" + hashKey;
+            String redisKey = PICTURE_ID_PREFIX + hashKey;
 
             // 删除 Redis 缓存
             stringRedisTemplate.delete(redisKey);

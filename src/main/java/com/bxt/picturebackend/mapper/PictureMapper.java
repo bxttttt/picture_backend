@@ -1,7 +1,11 @@
 package com.bxt.picturebackend.mapper;
 
+import com.bxt.picturebackend.dto.picture.UserUploadCountDTO;
 import com.bxt.picturebackend.model.entity.Picture;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Select;
+
+import java.util.List;
 
 /**
 * @author bxt
@@ -10,6 +14,24 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 * @Entity com.bxt.picturebackend.model.entity.Picture
 */
 public interface PictureMapper extends BaseMapper<Picture> {
+//    @Select("""
+//        SELECT user_id AS userId, COUNT(*) AS uploadCount FROM picture_0 WHERE is_deleted = 0 GROUP BY user_id
+//        UNION ALL
+//        SELECT user_id AS userId, COUNT(*) AS uploadCount FROM picture_1 WHERE is_deleted = 0 GROUP BY user_id
+//        UNION ALL
+//        SELECT user_id AS userId, COUNT(*) AS uploadCount FROM picture_2 WHERE is_deleted = 0 GROUP BY user_id
+//        UNION ALL
+//        SELECT user_id AS userId, COUNT(*) AS uploadCount FROM picture_3 WHERE is_deleted = 0 GROUP BY user_id
+//        UNION ALL
+//        SELECT user_id AS userId, COUNT(*) AS uploadCount FROM picture_4 WHERE is_deleted = 0 GROUP BY user_id
+//        UNION ALL
+//        SELECT user_id AS userId, COUNT(*) AS uploadCount FROM picture_5 WHERE is_deleted = 0 GROUP BY user_id
+//        UNION ALL
+//        SELECT user_id AS userId, COUNT(*) AS uploadCount FROM picture_6 WHERE is_deleted = 0 GROUP BY user_id
+//        UNION ALL
+//        SELECT user_id AS userId, COUNT(*) AS uploadCount FROM picture_7 WHERE is_deleted = 0 GROUP BY user_id
+//    """)
+//    List<UserUploadCountDTO> countByUserId();
 
 }
 

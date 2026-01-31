@@ -5,8 +5,11 @@ import com.bxt.picturebackend.aliYunAi.QueryTaskResponse;
 import com.bxt.picturebackend.annotation.VIPCheck;
 import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.config.RabbitMQConfig;
+import com.bxt.picturebackend.constant.RedisKeyConstant;
 import com.bxt.picturebackend.imageSearch.model.ImageSearchResult;
 import com.bxt.picturebackend.imageSearch.sub.GetImagePageUrlApi;
+import com.bxt.picturebackend.service.impl.PictureServiceImpl;
+import com.bxt.picturebackend.vo.UserUploadRankVo;
 import com.google.common.hash.BloomFilter;
 import cn.hutool.core.lang.copier.SrcToDestCopier;
 import cn.hutool.json.JSONUtil;
@@ -44,6 +47,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -55,6 +59,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+
+import static com.bxt.picturebackend.constant.RedisKeyConstant.PICTURE_ID_PREFIX;
+import static com.bxt.picturebackend.constant.RedisKeyConstant.PICTURE_QUERY_PREFIX;
 
 //bxt@bxtdeMacBook-Air picture-backend % redis-cli
 //127.0.0.1:6379> ping
@@ -149,7 +156,7 @@ public class PictureController {
     public BaseResponse<PictureVo> getPictureVoById(Long id, HttpServletRequest httpServletRequest) {
         pictureService.checkBloomFilter(null,id,null);
         String hashKey= DigestUtils.md5DigestAsHex(id.toString().getBytes(StandardCharsets.UTF_8));
-        String redisKey="picture:id:"+hashKey;
+        String redisKey= PICTURE_ID_PREFIX + hashKey;
         ValueOperations<String,String> valueOperations=stringRedisTemplate.opsForValue();
         String cachedResult=valueOperations.get(redisKey);
         if (cachedResult!=null) {
@@ -207,7 +214,7 @@ public class PictureController {
         pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.APPROVED.getValue());
         String queryCondition=JSONUtil.toJsonStr(pictureQueryRequest);
         String hashKey= DigestUtils.md5DigestAsHex(queryCondition.getBytes(StandardCharsets.UTF_8));
-        String redisKey="picture:query:"+hashKey;
+        String redisKey=PICTURE_QUERY_PREFIX + hashKey;
         ValueOperations<String, String> valueOperations = stringRedisTemplate.opsForValue();
         String cachedResult = valueOperations.get(redisKey);
         if (cachedResult != null) {
@@ -234,7 +241,7 @@ public class PictureController {
         pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.APPROVED.getValue());
         String queryCondition=JSONUtil.toJsonStr(pictureQueryRequest);
         String hashKey= DigestUtils.md5DigestAsHex(queryCondition.getBytes(StandardCharsets.UTF_8));
-        String key="picture:query:"+hashKey;
+        String key=PICTURE_QUERY_PREFIX + hashKey;
 
         String cachedResult = cache.getIfPresent(key);
         if (cachedResult != null) {
@@ -263,7 +270,7 @@ public class PictureController {
         pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.APPROVED.getValue());
         String queryCondition=JSONUtil.toJsonStr(pictureQueryRequest);
         String hashKey= DigestUtils.md5DigestAsHex(queryCondition.getBytes(StandardCharsets.UTF_8));
-        String key="picture:query:"+hashKey;
+        String key=PICTURE_QUERY_PREFIX + hashKey;
         // 1. 先从 Caffeine 缓存中获取
         Random random=new Random();
 
@@ -466,6 +473,76 @@ public class PictureController {
     public BaseResponse<QueryTaskResponse> queryOutPaintingTask(@PathVariable String taskId) {
         return ResultUtils.success(pictureService.queryOutPaintingTask(taskId));
     }
+    @GetMapping("/rank/allUsers")
+    public BaseResponse<List<UserUploadRankVo>> getAllUsersUploadRank(
+            @RequestParam(defaultValue = "10") int topN) {
+
+        Set<ZSetOperations.TypedTuple<String>> rankSet =
+                stringRedisTemplate.opsForZSet()
+                        .reverseRangeWithScores(
+                                RedisKeyConstant.PICTURE_UPLOAD_RANK,
+                                0,
+                                topN - 1
+                        );
+
+        if (rankSet == null) {
+            return ResultUtils.success(Collections.emptyList());
+        }
+
+        List<UserUploadRankVo> result = new ArrayList<>();
+
+        for (ZSetOperations.TypedTuple<String> tuple : rankSet) {
+            Long userId = Long.valueOf(tuple.getValue());
+            Long uploadCount = tuple.getScore().longValue();
+
+            User user = userService.getById(userId);
+
+            UserUploadRankVo vo = new UserUploadRankVo();
+            vo.setUserId(userId);
+            vo.setUserName(user.getUserName());
+            vo.setUserAvatar(user.getUserAvatar());
+            vo.setUploadCount(uploadCount);
+            vo.setRank(result.size() + 1); // 排名从1开始
+
+            result.add(vo);
+        }
+
+        return ResultUtils.success(result);
+    }
+    @GetMapping("/rank/query")
+    public BaseResponse<UserUploadRankVo> getUserUploadRank(
+            @RequestParam Long userId) {
+
+        Long rankDouble = stringRedisTemplate.opsForZSet()
+                .reverseRank(
+                        RedisKeyConstant.PICTURE_UPLOAD_RANK,
+                        userId.toString()
+                );
+
+        if (rankDouble == null) {
+            return ResultUtils.success(null);
+        }
+
+        Long rank = rankDouble.longValue() + 1; // 排名从0开始，需要加1
+
+        Long uploadCount = stringRedisTemplate.opsForZSet()
+                .score(
+                        RedisKeyConstant.PICTURE_UPLOAD_RANK,
+                        userId.toString()
+                ).longValue();
+
+        User user = userService.getById(userId);
+
+        UserUploadRankVo vo = new UserUploadRankVo();
+        vo.setUserId(userId);
+        vo.setUserName(user.getUserName());
+        vo.setUserAvatar(user.getUserAvatar());
+        vo.setUploadCount(uploadCount);
+        vo.setRank(Math.toIntExact(rank));
+
+        return ResultUtils.success(vo);
+    }
+
 
 
 

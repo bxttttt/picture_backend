@@ -15,6 +15,7 @@ import com.bxt.picturebackend.service.SpaceUserService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 /**
@@ -62,6 +63,7 @@ public class SpaceUserServiceImpl extends ServiceImpl<SpaceUserMapper, SpaceUser
         return this.page(page, queryWrapper);
     }
     @Autowired
+    @Lazy
     private PictureService pictureService;
     /**
      * 上传图片到空间

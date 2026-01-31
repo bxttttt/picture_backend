@@ -29,6 +29,8 @@ import com.bxt.picturebackend.bloomFilter.UserAccountBloomFilter;
 import com.bxt.picturebackend.bloomFilter.UserIdBloomFilter;
 import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.config.CosClientConfig;
+import com.bxt.picturebackend.config.RabbitMQConfig;
+import com.bxt.picturebackend.constant.RedisKeyConstant;
 import com.bxt.picturebackend.constant.UserConstant;
 import com.bxt.picturebackend.dto.file.UploadPictureResult;
 import com.bxt.picturebackend.dto.picture.PictureDownloadRequest;
@@ -56,6 +58,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.qcloud.cos.model.COSObject;
 import com.qcloud.cos.model.COSObjectInputStream;
 import com.qcloud.cos.utils.IOUtils;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -67,6 +70,8 @@ import org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+
+import static com.bxt.picturebackend.constant.RedisKeyConstant.UPLOAD_FILE_PREFIX;
 
 
 /**
@@ -90,6 +95,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     private UserIdBloomFilter userIdBloomFilter;
     @Autowired
     private PictureIdBloomFilter pictureIdBloomFilter;
+    @PostConstruct
+    public void checkLoaded() {
+        System.out.println(">>> PictureServiceImpl LOADED <<<");
+    }
+
     @Override
     public PictureVo uploadPicture(MultipartFile multipartFile, PictureUploadRequest pictureUploadRequest, User loginUser) {
         if (loginUser==null) {
@@ -127,6 +137,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片保存失败");
             }
         }
+        incrUserUploadCount(loginUser.getId());
         System.out.println("上传图片成功，图片ID: " + picture.getId());
         if (!pictureIdBloomFilter.mightContain(picture.getId())){
             pictureIdBloomFilter.add(picture.getId());
@@ -171,10 +182,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片保存失败");
             }
         }
+        incrUserUploadCount(loginUser.getId());
         System.out.println("上传图片成功，图片ID: " + picture.getId());
         if (!pictureIdBloomFilter.mightContain(picture.getId())){
             pictureIdBloomFilter.add(picture.getId());
         }
+
         return PictureVo.objToVo(picture);
     }
     /**
@@ -550,7 +563,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     private StringRedisTemplate stringRedisTemplate;
     @Override
     public void isDuplicateUpload(String fileMd, String userIdMd){
-        String redisKey="upload:file:" + fileMd+userIdMd;
+        String redisKey=UPLOAD_FILE_PREFIX + fileMd + userIdMd;
         Boolean isNew = stringRedisTemplate.opsForValue().setIfAbsent(redisKey, "1", 1, TimeUnit.MINUTES);
         if (Boolean.FALSE.equals(isNew)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"文件已上传过");
@@ -622,11 +635,15 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     }
 
 
-
-
-
-
-
+    @Override
+    public void incrUserUploadCount(Long userId) {
+        stringRedisTemplate.opsForZSet()
+                .incrementScore(
+                        RedisKeyConstant.PICTURE_UPLOAD_RANK,
+                        userId.toString(),
+                        1
+                );
+    }
 
 
 
