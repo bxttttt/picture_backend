@@ -258,50 +258,135 @@ public class PictureController {
             .expireAfterWrite(10, TimeUnit.MINUTES) // 写入后10分钟过期
             .build();
     //多级缓存的缺点是首次查询会比较慢，但如果查找缓存中的数据，会很快，只需要二分之一到三分之一的时间（和用自带的缓存相比）
+//    @PostMapping("/list/page/vo/multiLevelCache")
+//    public BaseResponse<Page<PictureVo>> listPictureVoByPageFromMultiLevelCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest httpServletRequest) {
+//        long current = pictureQueryRequest.getCurrent();
+//        long size = pictureQueryRequest.getPageSize();
+//        ThrowUtils.throwIf(size>20,ErrorCode.PARAMS_ERROR,"分页大小不能超过20");
+//        if (current <= 0 || size <= 0) {
+//            throw new BusinessException(ErrorCode.PARAMS_ERROR, "分页参数错误");
+//        }
+//        pictureService.checkBloomFilter(pictureQueryRequest.getUserId(),pictureQueryRequest.getId(),null);
+//        pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.APPROVED.getValue());
+//        String queryCondition=JSONUtil.toJsonStr(pictureQueryRequest);
+//        String hashKey= DigestUtils.md5DigestAsHex(queryCondition.getBytes(StandardCharsets.UTF_8));
+//        String key=PICTURE_QUERY_PREFIX + hashKey;
+//        // 1. 先从 Caffeine 缓存中获取
+//        Random random=new Random();
+//
+//        String cachedResult = cache.getIfPresent(key);
+//        if (cachedResult != null) {
+//            Page<PictureVo> cachedPage = JSONUtil.toBean(cachedResult, Page.class);
+//            return ResultUtils.success(cachedPage);
+//        }
+//        // 2. 如果 Caffeine 缓存中没有，再从 Redis 中获取
+//        ValueOperations<String, String> valueOperations = stringRedisTemplate.opsForValue();
+//        String redisCachedResult = valueOperations.get(key);
+//        if (redisCachedResult != null) {
+//            Page<PictureVo> cachedPage = JSONUtil.toBean(redisCachedResult, Page.class);
+//            // 同时将数据写入 Caffeine 缓存
+//            cache.put(key, redisCachedResult);
+//            return ResultUtils.success(cachedPage);
+//        }
+//        // 3. 如果 Redis 中也没有，则从数据库查询
+//        Page<Picture> picturePage = pictureService.page(new Page<>(current, size), pictureService.getQueryWrapper(pictureQueryRequest));
+//        Page<PictureVo> pictureVoPage = pictureService.getPictureVoPage(picturePage, httpServletRequest);
+//        String cacheValue = JSONUtil.toJsonStr(pictureVoPage);
+//        // 将查询结果写入 Redis 和 Caffeine 缓存
+//        // 即使查询结果为null也会写入
+//        int cacheExpireTime = 300+random.nextInt(300); // 缓存随机分钟
+//        // 缓存随机分钟的原因是为了避免缓存雪崩
+//        valueOperations.set(key, cacheValue, cacheExpireTime, TimeUnit.SECONDS);
+//        cache.put(key, cacheValue);
+//
+//        return ResultUtils.success(pictureVoPage);
+//
+//    }
+
     @PostMapping("/list/page/vo/multiLevelCache")
-    public BaseResponse<Page<PictureVo>> listPictureVoByPageFromMultiLevelCache(@RequestBody PictureQueryRequest pictureQueryRequest, HttpServletRequest httpServletRequest) {
+    public BaseResponse<Page<PictureVo>> listPictureVoByPageFromMultiLevelCache(
+            @RequestBody PictureQueryRequest pictureQueryRequest,
+            HttpServletRequest httpServletRequest) {
+
         long current = pictureQueryRequest.getCurrent();
         long size = pictureQueryRequest.getPageSize();
-        ThrowUtils.throwIf(size>20,ErrorCode.PARAMS_ERROR,"分页大小不能超过20");
+        ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR, "分页大小不能超过20");
         if (current <= 0 || size <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "分页参数错误");
         }
-        pictureService.checkBloomFilter(pictureQueryRequest.getUserId(),pictureQueryRequest.getId(),null);
-        pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.APPROVED.getValue());
-        String queryCondition=JSONUtil.toJsonStr(pictureQueryRequest);
-        String hashKey= DigestUtils.md5DigestAsHex(queryCondition.getBytes(StandardCharsets.UTF_8));
-        String key=PICTURE_QUERY_PREFIX + hashKey;
-        // 1. 先从 Caffeine 缓存中获取
-        Random random=new Random();
 
+        pictureService.checkBloomFilter(
+                pictureQueryRequest.getUserId(),
+                pictureQueryRequest.getId(),
+                null
+        );
+
+        pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.APPROVED.getValue());
+
+        String queryCondition = JSONUtil.toJsonStr(pictureQueryRequest);
+        String hashKey = DigestUtils.md5DigestAsHex(queryCondition.getBytes(StandardCharsets.UTF_8));
+        String key = PICTURE_QUERY_PREFIX + hashKey;
+
+        // ================= ⭐ HotKey 探测（轻量级） =================
+        String hotKey = "hot:" + key;
+        Long hotCnt = stringRedisTemplate.opsForValue().increment(hotKey);
+        // 1 分钟滑动窗口
+        stringRedisTemplate.expire(hotKey, 60, TimeUnit.SECONDS);
+        // ==========================================================
+
+        Random random = new Random();
+
+        // 1. 先查 Caffeine
         String cachedResult = cache.getIfPresent(key);
         if (cachedResult != null) {
             Page<PictureVo> cachedPage = JSONUtil.toBean(cachedResult, Page.class);
             return ResultUtils.success(cachedPage);
         }
-        // 2. 如果 Caffeine 缓存中没有，再从 Redis 中获取
+
+        // 2. 再查 Redis
         ValueOperations<String, String> valueOperations = stringRedisTemplate.opsForValue();
         String redisCachedResult = valueOperations.get(key);
         if (redisCachedResult != null) {
             Page<PictureVo> cachedPage = JSONUtil.toBean(redisCachedResult, Page.class);
-            // 同时将数据写入 Caffeine 缓存
+            // 回填本地缓存
             cache.put(key, redisCachedResult);
             return ResultUtils.success(cachedPage);
         }
-        // 3. 如果 Redis 中也没有，则从数据库查询
-        Page<Picture> picturePage = pictureService.page(new Page<>(current, size), pictureService.getQueryWrapper(pictureQueryRequest));
-        Page<PictureVo> pictureVoPage = pictureService.getPictureVoPage(picturePage, httpServletRequest);
+
+        // 3. 查数据库
+        Page<Picture> picturePage = pictureService.page(
+                new Page<>(current, size),
+                pictureService.getQueryWrapper(pictureQueryRequest)
+        );
+        Page<PictureVo> pictureVoPage =
+                pictureService.getPictureVoPage(picturePage, httpServletRequest);
+
         String cacheValue = JSONUtil.toJsonStr(pictureVoPage);
-        // 将查询结果写入 Redis 和 Caffeine 缓存
-        // 即使查询结果为null也会写入
-        int cacheExpireTime = 300+random.nextInt(300); // 缓存随机分钟
-        // 缓存随机分钟的原因是为了避免缓存雪崩
-        valueOperations.set(key, cacheValue, cacheExpireTime, TimeUnit.SECONDS);
+
+        // ================= ⭐ 分层 TTL + 随机抖动 =================
+        int baseExpire = 300; // 5 分钟
+        int hotBonus = 0;
+
+        if (hotCnt != null) {
+            if (hotCnt > 50) {
+                hotBonus = 1800; // 超热点：+30 分钟
+            } else if (hotCnt > 10) {
+                hotBonus = 600;  // 热点：+10 分钟
+            }
+        }
+
+        int jitter = random.nextInt(60); // 0~60s 随机抖动
+        int finalExpireTime = baseExpire + hotBonus + jitter;
+        // =========================================================
+
+        // 写 Redis
+        valueOperations.set(key, cacheValue, finalExpireTime, TimeUnit.SECONDS);
+        // 写 Caffeine
         cache.put(key, cacheValue);
 
         return ResultUtils.success(pictureVoPage);
-
     }
+
     @GetMapping("/tag_category")
     public BaseResponse<PictureTagCategory> listPictureTagCategory() {
         PictureTagCategory pictureTagCategory = new PictureTagCategory();

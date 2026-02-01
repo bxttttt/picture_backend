@@ -172,3 +172,5 @@ INSERT INTO picture (userId, url, name) VALUES (1, 'test1.png', '用户1图片')
 INSERT INTO picture (userId, url, name) VALUES (2, 'test2.png', '用户2图片');
 INSERT INTO picture (userId, url, name) VALUES (9, 'test9.png', '用户9图片');
 
+CREATE UNIQUE INDEX uk_space_user
+    ON space_user (spaceId, userId, isDeleted);

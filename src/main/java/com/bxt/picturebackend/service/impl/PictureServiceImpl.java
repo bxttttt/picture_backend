@@ -279,6 +279,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             queryWrapper.eq("userId",userId);
             if (!userIdBloomFilter.mightContain(userId)) return null;
         }
+        if (tags == null || tags.isEmpty()) {
+            return queryWrapper;
+        }
         for (String tag : tags) {
             if (StrUtil.isNotBlank(tag)) {
                 queryWrapper.like("tags", tag);
