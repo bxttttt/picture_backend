@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.bxt.picturebackend.common.PageRequest;
 import com.bxt.picturebackend.dto.user.UserUpdateRequest;
 import com.bxt.picturebackend.model.entity.User;
+import com.bxt.picturebackend.vo.SignInVO;
+import com.bxt.picturebackend.vo.SignMonthVO;
 import com.bxt.picturebackend.vo.UserLoginVo;
 import com.bxt.picturebackend.vo.UserSearchVo;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,4 +38,21 @@ public interface UserService extends IService<User> {
     Long getUserIdByAccount(String userAccount);
 
     Page<UserSearchVo> recommendUsersThroughUsername(String queryName, PageRequest pageRequest, HttpServletRequest request);
+
+    // ====== 签到 ======
+
+    /**
+     * 今日签到
+     */
+    SignInVO signIn(Long userId);
+
+    /**
+     * 查询某天是否签到
+     */
+    Boolean signStatus(Long userId, String date);
+
+    /**
+     * 查询某月签到情况
+     */
+    SignMonthVO signMonth(Long userId, String month);
 }

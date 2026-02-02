@@ -17,16 +17,21 @@ import com.bxt.picturebackend.model.entity.User;
 import com.bxt.picturebackend.model.enums.UserRoleEnum;
 import com.bxt.picturebackend.service.UserService;
 
+import com.bxt.picturebackend.vo.SignInVO;
+import com.bxt.picturebackend.vo.SignMonthVO;
 import com.bxt.picturebackend.vo.UserLoginVo;
 import com.bxt.picturebackend.vo.UserSearchVo;
 import com.google.common.hash.BloomFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
+
+import static com.bxt.picturebackend.constant.RedisKeyConstant.SIGN_KEY_PREFIX;
 
 /**
 * @author bxt
@@ -42,6 +47,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private UserIdBloomFilter userIdBloomFilter;
     @Autowired
     private UserAccountBloomFilter userAccountBloomFilter;
+
 
     @Override
     public long registerUser(String userAccount, String password, String confirmPassword) {
@@ -228,6 +234,143 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 返回结果
         return userSearchVoPage;
     }
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate;
+
+
+    /* ====================== 签到（Redis Bitmap） ====================== */
+
+
+
+    @Override
+    public SignInVO signIn(Long userId) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        java.time.YearMonth ym = java.time.YearMonth.from(today);
+
+        String key = buildSignKey(userId, ym);
+        int offset = today.getDayOfMonth() - 1;
+
+        Boolean already = stringRedisTemplate.opsForValue().getBit(key, offset);
+        if (!Boolean.TRUE.equals(already)) {
+            // 未签到才设置
+            stringRedisTemplate.opsForValue().setBit(key, offset, true);
+
+            // 设置过期时间：下个月月初 + 2 天
+            long seconds = calcExpireSecondsToNextMonthPlusDays(today, 2);
+            if (seconds > 0) {
+                stringRedisTemplate.expire(key, seconds, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        }else {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "今天已经签到过了");
+        }
+
+        return buildSignInVO(key, today);
+    }
+
+    @Override
+    public Boolean signStatus(Long userId, String date) {
+        java.time.LocalDate d;
+        try {
+            d = java.time.LocalDate.parse(date);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "date格式错误，需 yyyy-MM-dd");
+        }
+
+        java.time.YearMonth ym = java.time.YearMonth.from(d);
+        String key = buildSignKey(userId, ym);
+        int offset = d.getDayOfMonth() - 1;
+
+        Boolean signed = stringRedisTemplate.opsForValue().getBit(key, offset);
+        return Boolean.TRUE.equals(signed);
+    }
+
+    @Override
+    public SignMonthVO signMonth(Long userId, String month) {
+        java.time.YearMonth ym;
+        if (month == null || month.isBlank()) {
+            ym = java.time.YearMonth.now();
+        } else {
+            try {
+                ym = java.time.YearMonth.parse(month);
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "month格式错误，需 yyyy-MM");
+            }
+        }
+
+        String key = buildSignKey(userId, ym);
+        int daysInMonth = ym.lengthOfMonth();
+
+        java.util.List<Integer> signedDays = new java.util.ArrayList<>();
+        for (int day = 1; day <= daysInMonth; day++) {
+            Boolean signed = stringRedisTemplate.opsForValue().getBit(key, day - 1);
+            if (Boolean.TRUE.equals(signed)) {
+                signedDays.add(day);
+            }
+        }
+
+        Long count = stringRedisTemplate.execute(
+                (RedisCallback<Long>) c -> c.stringCommands().bitCount(key.getBytes())
+        );
+
+        java.time.LocalDate anchor = ym.equals(java.time.YearMonth.now())
+                ? java.time.LocalDate.now()
+                : ym.atEndOfMonth();
+
+        int continueDays = calcContinueDays(key, anchor);
+
+        SignMonthVO vo = new SignMonthVO();
+        vo.setMonth(ym.toString());
+        vo.setSignedDays(signedDays);
+        vo.setMonthSignedCount(count == null ? 0L : count);
+        vo.setContinueDays(continueDays);
+        return vo;
+    }
+
+    /* ====================== helper ====================== */
+
+    private String buildSignKey(Long userId, java.time.YearMonth ym) {
+        String ymStr = String.format("%04d%02d", ym.getYear(), ym.getMonthValue());
+        return SIGN_KEY_PREFIX + ymStr + ":" + userId;
+    }
+
+    private SignInVO buildSignInVO(String key, java.time.LocalDate today) {
+        Long count = stringRedisTemplate.execute(
+                (RedisCallback<Long>) c -> c.stringCommands().bitCount(key.getBytes())
+        );
+
+        int continueDays = calcContinueDays(key, today);
+
+        SignInVO vo = new SignInVO();
+        vo.setTodaySigned(true);
+        vo.setMonthSignedCount(count == null ? 0L : count);
+        vo.setContinueDays(continueDays);
+        return vo;
+    }
+
+    private int calcContinueDays(String key, java.time.LocalDate anchor) {
+        int day = anchor.getDayOfMonth();
+        int cnt = 0;
+        for (int i = day - 1; i >= 0; i--) {
+            Boolean signed = stringRedisTemplate.opsForValue().getBit(key, i);
+            if (Boolean.TRUE.equals(signed)) {
+                cnt++;
+            } else {
+                break;
+            }
+        }
+        return cnt;
+    }
+
+    private long calcExpireSecondsToNextMonthPlusDays(java.time.LocalDate today, int plusDays) {
+        java.time.LocalDate firstOfNextMonth =
+                today.plusMonths(1).withDayOfMonth(1).plusDays(plusDays);
+        java.time.LocalDateTime expireAt = firstOfNextMonth.atStartOfDay();
+        return Math.max(
+                java.time.Duration.between(java.time.LocalDateTime.now(), expireAt).getSeconds(),
+                0
+        );
+    }
+
 }
 
 

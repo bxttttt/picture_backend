@@ -19,4 +19,8 @@ public interface RedisKeyConstant {
 
     /** 用户上传图片数量排行榜（ZSet） */
     String PICTURE_UPLOAD_RANK = "picture:upload:rank";
+
+    String HOT_KEY="hot:";
+
+    String SIGN_KEY_PREFIX = "sign:";
 }

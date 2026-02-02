@@ -60,8 +60,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import static com.bxt.picturebackend.constant.RedisKeyConstant.PICTURE_ID_PREFIX;
-import static com.bxt.picturebackend.constant.RedisKeyConstant.PICTURE_QUERY_PREFIX;
+import static com.bxt.picturebackend.constant.RedisKeyConstant.*;
 
 //bxt@bxtdeMacBook-Air picture-backend % redis-cli
 //127.0.0.1:6379> ping
@@ -328,7 +327,7 @@ public class PictureController {
         String key = PICTURE_QUERY_PREFIX + hashKey;
 
         // ================= ⭐ HotKey 探测（轻量级） =================
-        String hotKey = "hot:" + key;
+        String hotKey = HOT_KEY + key;
         Long hotCnt = stringRedisTemplate.opsForValue().increment(hotKey);
         // 1 分钟滑动窗口
         stringRedisTemplate.expire(hotKey, 60, TimeUnit.SECONDS);

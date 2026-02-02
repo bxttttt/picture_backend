@@ -16,6 +16,8 @@ import com.bxt.picturebackend.exception.ErrorCode;
 import com.bxt.picturebackend.model.entity.User;
 import com.bxt.picturebackend.model.enums.UserRoleEnum;
 import com.bxt.picturebackend.service.UserService;
+import com.bxt.picturebackend.vo.SignInVO;
+import com.bxt.picturebackend.vo.SignMonthVO;
 import com.bxt.picturebackend.vo.UserLoginVo;
 import com.bxt.picturebackend.vo.UserSearchVo;
 import com.google.code.kaptcha.Producer;
@@ -316,6 +318,40 @@ public class UserController {
         return ResultUtils.success(userSearchVoPage);
 
     }
+    @PostMapping("/sign/in")
+    public BaseResponse<SignInVO> signIn(HttpServletRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户未登录或会话已过期");
+        }
+
+        UserLoginVo currentUser = userService.getCurrentUser(request);
+        return ResultUtils.success(userService.signIn(currentUser.getId()));
+    }
+
+    @GetMapping("/sign/status")
+    public BaseResponse<Boolean> signStatus(@RequestParam String date,
+                                            HttpServletRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户未登录或会话已过期");
+        }
+        UserLoginVo currentUser = userService.getCurrentUser(request);
+        return ResultUtils.success(
+                userService.signStatus(currentUser.getId(), date)
+        );
+    }
+
+    @GetMapping("/sign/month")
+    public BaseResponse<SignMonthVO> signMonth(@RequestParam(required = false) String month,
+                                               HttpServletRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户未登录或会话已过期");
+        }
+        UserLoginVo currentUser = userService.getCurrentUser(request);
+        return ResultUtils.success(
+                userService.signMonth(currentUser.getId(), month)
+        );
+    }
+
 
 
 
