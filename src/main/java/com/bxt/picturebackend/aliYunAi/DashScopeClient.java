@@ -7,11 +7,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import java.util.Map;
+
 @Service
 public class DashScopeClient {
     @Autowired
     private AliyunAiConfig aliyunAiConfig; // 注入配置类
     private static final String BASE_URL = "https://dashscope.aliyuncs.com/api/v1";
+    /** 兼容 OpenAI 的对话接口（支持 tools） */
+    private static final String CHAT_COMPLETIONS_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
     private static final OkHttpClient client = new OkHttpClient();
     private static final ObjectMapper mapper = new ObjectMapper();
     @Autowired
@@ -74,6 +79,44 @@ public class DashScopeClient {
         try (Response response = client.newCall(httpRequest).execute()) {
             if (!response.isSuccessful()) throw new RuntimeException("请求失败: " + response);
             return mapper.readValue(response.body().string(), QueryTaskResponse.class);
+        }
+    }
+
+    /**
+     * 调用兼容模式对话接口（支持 function calling）
+     *
+     * @param messages 消息列表，每项为 Map 含 role、content；若有 tool_calls 则含 tool_calls
+     * @param tools    工具定义列表，每项为 Map type=function, function={name, description, parameters}
+     * @return 响应中的 choices[0].message（content 与 tool_calls）
+     */
+    @SuppressWarnings("unchecked")
+    public ChatCompletionResponse.Message chatWithTools(List<Map<String, Object>> messages, List<Map<String, Object>> tools) throws Exception {
+        String apiKey = aliyunAiConfig.getApiKey();
+        Map<String, Object> body = Map.of(
+                "model", "qwen-plus",
+                "messages", messages,
+                "tools", tools
+        );
+        String json = mapper.writeValueAsString(body);
+        RequestBody requestBody = RequestBody.create(json, MediaType.parse("application/json"));
+        Request httpRequest = new Request.Builder()
+                .url(CHAT_COMPLETIONS_URL)
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .post(requestBody)
+                .build();
+
+        try (Response response = client.newCall(httpRequest).execute()) {
+            if (!response.isSuccessful()) {
+                String err = response.body() != null ? response.body().string() : response.message();
+                throw new RuntimeException("DashScope 对话请求失败: " + response.code() + " " + err);
+            }
+            String responseBody = response.body() != null ? response.body().string() : "{}";
+            ChatCompletionResponse parsed = mapper.readValue(responseBody, ChatCompletionResponse.class);
+            if (parsed.getChoices() == null || parsed.getChoices().isEmpty()) {
+                throw new RuntimeException("DashScope 返回无 choices");
+            }
+            return parsed.getChoices().get(0).getMessage();
         }
     }
 }

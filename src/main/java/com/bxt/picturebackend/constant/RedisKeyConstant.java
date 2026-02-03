@@ -23,4 +23,7 @@ public interface RedisKeyConstant {
     String HOT_KEY="hot:";
 
     String SIGN_KEY_PREFIX = "sign:";
+
+    /** 智能客服对话历史：key = CHAT_SESSION_PREFIX + sessionId，value = JSON 消息列表 */
+    String CHAT_SESSION_PREFIX = "chat:session:";
 }
