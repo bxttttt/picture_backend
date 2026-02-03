@@ -19,7 +19,12 @@ public class ChatResponse implements Serializable {
     private String reply;
 
     /**
-     * 若本次回复涉及搜图，返回命中的图片 ID 列表（供前端展示）
+     * 若本次回复涉及搜图，返回命中的图片 ID 列表（供前端展示，保留兼容）
      */
     private List<Long> pictureIds;
+
+    /**
+     * 若本次回复涉及搜图，返回图片简要列表（id + url + name），方便前端直接展示图片
+     */
+    private List<ChatPictureItem> pictures;
 }

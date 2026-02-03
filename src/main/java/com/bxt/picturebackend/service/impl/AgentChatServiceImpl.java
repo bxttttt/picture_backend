@@ -8,11 +8,11 @@ import com.bxt.picturebackend.aliYunAi.ChatCompletionResponse;
 import com.bxt.picturebackend.aliYunAi.DashScopeClient;
 import com.bxt.picturebackend.constant.RedisKeyConstant;
 import com.bxt.picturebackend.constant.UserConstant;
+import com.bxt.picturebackend.dto.chat.ChatPictureItem;
 import com.bxt.picturebackend.dto.chat.ChatResponse;
 import com.bxt.picturebackend.dto.picture.PictureQueryRequest;
 import com.bxt.picturebackend.exception.BusinessException;
 import com.bxt.picturebackend.exception.ErrorCode;
-import com.bxt.picturebackend.mapper.PictureMapper;
 import com.bxt.picturebackend.model.entity.Picture;
 import com.bxt.picturebackend.model.entity.User;
 import com.bxt.picturebackend.model.enums.PictureReviewStatusEnum;
@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AgentChatServiceImpl implements AgentChatService {
 
-    private static final String SYSTEM_PROMPT = "你是本图库平台的智能客服。你可以通过工具帮用户：1）按关键词或分类搜索图片；2）查看当前用户最近上传的图片；3）查看用户上传数量排行榜；4）对指定图片进行分析（描述内容、主体、风格）；5）编辑用户自己的图片信息（名称 name、简介 introduction）。当用户说「修改图片名称」「改一下简介」「把图片 123 的名字改成 xxx」等并给出图片ID时，请调用 edit_picture 工具。仅图片所有者或管理员可编辑。若用户未登录却询问「我的上传」或要编辑图片，请提示先登录。";
+    private static final String SYSTEM_PROMPT = "你是本图库平台的智能客服。你可以通过工具帮用户：1）按关键词或分类搜索图片；2）查看当前用户最近上传的图片；3）查看用户上传数量排行榜；4）对指定图片进行分析（描述内容、主体、风格）；5）编辑用户自己的图片信息（名称 name、简介 introduction、标签 tags）。当用户说「修改图片名称」「改简介」「改标签」「把图片 123 的名字/简介/标签改成 xxx」等并给出图片ID时，请调用 edit_picture 工具。仅图片所有者或管理员可编辑。若用户未登录却询问「我的上传」或要编辑图片，请提示先登录。";
     private static final int MAX_TOOL_ROUNDS = 5;
     private static final int SESSION_TTL_MINUTES = 30;
 
@@ -53,8 +53,6 @@ public class AgentChatServiceImpl implements AgentChatService {
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
     private RabbitTemplate rabbitTemplate;
-    @Autowired
-    private PictureMapper pictureMapper;
 
     @Override
     public ChatResponse chat(String message, String sessionId, HttpServletRequest request) {
@@ -104,6 +102,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         ChatResponse response = new ChatResponse();
         response.setReply(reply);
         response.setPictureIds(pictureIds.isEmpty() ? null : pictureIds);
+        response.setPictures(buildPictureListFromIds(pictureIds));
         return response;
     }
 
@@ -168,18 +167,23 @@ public class AgentChatServiceImpl implements AgentChatService {
                         )
                 )
         ));
+        Map<String, Object> editPictureProps = new HashMap<>();
+        editPictureProps.put("picture_id", Map.of("type", "integer", "description", "图片ID，必填"));
+        editPictureProps.put("name", Map.of("type", "string", "description", "新的图片名称，可选"));
+        editPictureProps.put("introduction", Map.of("type", "string", "description", "新的图片简介，可选；最多 800 字"));
+        editPictureProps.put("tags", Map.of(
+                "type", "array",
+                "items", Map.of("type", "string"),
+                "description", "新的标签列表，可选；如 [\"爱豆名\",\"风格\",\"场景\",\"情绪\"]，会整体替换原标签"
+        ));
         tools.add(Map.of(
                 "type", "function",
                 "function", Map.of(
                         "name", "edit_picture",
-                        "description", "编辑用户自己的图片信息（名称、简介）。仅图片所有者或管理员可编辑。当用户说「修改图片名称」「改简介」「把图片 123 的名字改成 xxx」等并给出图片ID时调用。",
+                        "description", "编辑用户自己的图片信息（名称、简介、标签）。仅图片所有者或管理员可编辑。当用户说「修改图片名称」「改简介」「改标签」「把图片 123 的名字/简介/标签改成 xxx」等并给出图片ID时调用。",
                         "parameters", Map.of(
                                 "type", "object",
-                                "properties", Map.of(
-                                        "picture_id", Map.of("type", "integer", "description", "图片ID，必填"),
-                                        "name", Map.of("type", "string", "description", "新的图片名称，可选"),
-                                        "introduction", Map.of("type", "string", "description", "新的图片简介，可选；最多 800 字")
-                                ),
+                                "properties", editPictureProps,
                                 "required", List.of("picture_id")
                         )
                 )
@@ -358,31 +362,38 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
         String name = (String) args.get("name");
         String introduction = (String) args.get("introduction");
+        Object tagsObj = args.get("tags");
         if (StrUtil.isNotBlank(name)) {
             picture.setName(name);
         }
         if (introduction != null) {
             picture.setIntroduction(introduction);
         }
+        if (tagsObj != null) {
+            List<String> tagList = new ArrayList<>();
+            if (tagsObj instanceof List) {
+                for (Object o : (List<?>) tagsObj) {
+                    if (o != null) tagList.add(o.toString());
+                }
+            }
+            picture.setTags(JSONUtil.toJsonStr(tagList));
+        }
+        picture.setEditTime(new Date());
         try {
             pictureService.validPicture(picture);
         } catch (BusinessException e) {
             return "校验失败：" + e.getMessage();
         }
-        // 分库分表按 userId 分片，WHERE 必须带 id + userId 才能正确路由；用 Mapper 显式 SQL 保证路由
-        Long userId = picture.getUserId();
-        String nameToSet = StrUtil.isNotBlank(name) ? name : null;
         try {
-            int rows = pictureMapper.updateNameAndIntroductionByIdAndUserId(
-                    pictureId, userId, nameToSet, introduction, new Date());
-            if (rows <= 0) {
+            boolean ok = pictureService.updatePictureShardingSafe(picture);
+            if (!ok) {
                 return "更新失败，请稍后再试。";
             }
         } catch (Exception e) {
-            log.error("编辑图片失败 pictureId={} userId={} ex={}", pictureId, userId, e.getClass().getName(), e);
+            log.error("编辑图片失败 pictureId={} userId={}", pictureId, picture.getUserId(), e);
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             if (msg.contains("sharding") || msg.contains("20031") || msg.contains("分库分表") || msg.contains("分片")) {
-                return "更新失败：分库分表限制（请确认 Mapper XML 已加载且 SET 中未包含 userId）。详情：" + msg;
+                return "更新失败：分库分表限制。详情：" + msg;
             }
             return "更新失败：" + msg;
         }
@@ -390,7 +401,12 @@ public class AgentChatServiceImpl implements AgentChatService {
         StringBuilder sb = new StringBuilder("已更新图片信息。");
         if (StrUtil.isNotBlank(name)) sb.append(" 名称：").append(name);
         if (introduction != null) sb.append(" 简介：").append(introduction.length() > 50 ? introduction.substring(0, 50) + "…" : introduction);
-        if (StrUtil.isBlank(name) && introduction == null) sb.append("（未传入要修改的 name 或 introduction）");
+        if (tagsObj != null && tagsObj instanceof List && !((List<?>) tagsObj).isEmpty()) {
+            sb.append(" 标签：").append(JSONUtil.toJsonStr(tagsObj));
+        }
+        if (StrUtil.isBlank(name) && introduction == null && tagsObj == null) {
+            sb.append("（未传入要修改的 name、introduction 或 tags）");
+        }
         return sb.toString();
     }
 
@@ -433,8 +449,8 @@ public class AgentChatServiceImpl implements AgentChatService {
 
 
     private void collectPictureIdsFromToolResult(String toolName, String toolResult, List<Long> pictureIds) {
-        if (!"search_pictures".equals(toolName)) return;
-        // 从 "1. id=123 ..." 形式解析 id
+        if (!"search_pictures".equals(toolName) && !"get_my_recent_uploads".equals(toolName)) return;
+        // 从 "1. id=123 ..." 形式解析 id（搜图与「我的上传」均为此格式）
         String[] lines = toolResult.split("\n");
         for (String line : lines) {
             int idx = line.indexOf("id=");
@@ -449,6 +465,29 @@ public class AgentChatServiceImpl implements AgentChatService {
                 }
             }
         }
+    }
+
+    /** 根据图片 ID 列表批量查询，返回 id + url + name 列表（去重、保持原顺序），方便前端展示 */
+    private List<ChatPictureItem> buildPictureListFromIds(List<Long> pictureIds) {
+        if (pictureIds == null || pictureIds.isEmpty()) return null;
+        List<Long> ids = new ArrayList<>(new LinkedHashSet<>(pictureIds));
+        if (ids.isEmpty()) return null;
+        List<Picture> list = pictureService.listByIds(ids);
+        Map<Long, Picture> idToPicture = new HashMap<>();
+        for (Picture p : list) {
+            if (p != null && p.getId() != null) idToPicture.put(p.getId(), p);
+        }
+        List<ChatPictureItem> result = new ArrayList<>();
+        for (Long id : ids) {
+            Picture p = idToPicture.get(id);
+            if (p == null) continue;
+            ChatPictureItem item = new ChatPictureItem();
+            item.setId(p.getId());
+            item.setUrl(p.getUrl());
+            item.setName(p.getName());
+            result.add(item);
+        }
+        return result.isEmpty() ? null : result;
     }
 
     @SuppressWarnings("unchecked")

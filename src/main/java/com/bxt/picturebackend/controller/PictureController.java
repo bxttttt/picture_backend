@@ -163,7 +163,8 @@ public class PictureController {
         String prompt = "这是爱豆应援云图库中的一张图片。请按以下步骤回答，只返回一个 JSON 对象，不要其他说明。"
                 + "1) 先识别图片中出现的爱豆/明星姓名（艺人、偶像、演员、团体名等），若没有明显人物或无法识别则填「无」。"
                 + "2) 根据识别到的爱豆，推荐图片的中文名称（name）和一段简介（introduction），name 和 introduction 中尽量包含该爱豆名字、表情、穿搭、妆造或其它与应援相关的内容，语气应该包含激动的情绪；若未识别到爱豆，则根据图片内容给通用名称和简介。"
-                + "格式严格为：{\"idolName\":\"爱豆姓名或无\",\"name\":\"推荐图片名称\",\"introduction\":\"简介内容\"}";
+                + "3) 推荐标签（tags）：一个字符串数组，可包含爱豆名字、图片风格（如写真/舞台/生活/街拍）、照片场景（如演唱会/机场/综艺/红毯）、情绪风格（如活力/温柔/酷飒/甜美）等，每项为简短中文标签，数量 3～8 个。"
+                + "格式严格为：{\"idolName\":\"爱豆姓名或无\",\"name\":\"推荐图片名称\",\"introduction\":\"简介内容\",\"tags\":[\"标签1\",\"标签2\",\"标签3\"]}";
         String aiResponse;
         try {
             aiResponse = dashScopeClient.analyzeImage(url, prompt);
@@ -175,13 +176,14 @@ public class PictureController {
         return ResultUtils.success(vo);
     }
 
-    /** 从 AI 返回文本中解析出 idolName、name、introduction（兼容 JSON 或带 markdown 的文本） */
+    /** 从 AI 返回文本中解析出 idolName、name、introduction、tags（兼容 JSON 或带 markdown 的文本） */
     private PictureAiSuggestVo parseAiSuggestResponse(String aiResponse) {
         PictureAiSuggestVo vo = new PictureAiSuggestVo();
         if (cn.hutool.core.util.StrUtil.isBlank(aiResponse)) {
             vo.setIdolName("");
             vo.setName("");
             vo.setIntroduction("");
+            vo.setTags(new ArrayList<>());
             return vo;
         }
         String trimmed = aiResponse.trim();
@@ -194,6 +196,7 @@ public class PictureController {
                 vo.setIdolName(parsed.getIdolName() != null ? parsed.getIdolName() : "");
                 vo.setName(parsed.getName() != null ? parsed.getName() : "");
                 vo.setIntroduction(parsed.getIntroduction() != null ? parsed.getIntroduction() : "");
+                vo.setTags(parsed.getTags() != null ? parsed.getTags() : new ArrayList<>());
                 return vo;
             }
         } catch (Exception e) {
@@ -202,6 +205,7 @@ public class PictureController {
         vo.setIdolName("");
         vo.setName("");
         vo.setIntroduction(trimmed.length() > 200 ? trimmed.substring(0, 200) : trimmed);
+        vo.setTags(new ArrayList<>());
         return vo;
     }
 
