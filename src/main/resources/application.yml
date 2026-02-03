@@ -61,6 +61,7 @@ spring:
     allow-circular-references: true
 
 mybatis-plus:
+  mapper-locations: classpath*:generator/mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: false
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl

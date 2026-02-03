@@ -33,6 +33,10 @@ public class ChatCompletionResponse {
         private String content;
         @JsonProperty("tool_calls")
         private List<ToolCall> toolCalls;
+
+        public String getRole() { return role; }
+        public String getContent() { return content; }
+        public List<ToolCall> getToolCalls() { return toolCalls; }
     }
 
     @Data
@@ -40,6 +44,9 @@ public class ChatCompletionResponse {
     public static class ToolCall {
         private String id;
         private Function function;
+
+        public String getId() { return id; }
+        public Function getFunction() { return function; }
     }
 
     @Data
@@ -47,5 +54,8 @@ public class ChatCompletionResponse {
     public static class Function {
         private String name;
         private String arguments;
+
+        public String getName() { return name; }
+        public String getArguments() { return arguments; }
     }
 }

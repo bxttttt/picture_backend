@@ -1,5 +1,6 @@
 package com.bxt.picturebackend.controller;
 
+import com.bxt.picturebackend.aliYunAi.DashScopeClient;
 import com.bxt.picturebackend.aliYunAi.CreateTaskResponse;
 import com.bxt.picturebackend.aliYunAi.QueryTaskResponse;
 import com.bxt.picturebackend.annotation.VIPCheck;
@@ -28,6 +29,7 @@ import com.bxt.picturebackend.model.entity.User;
 import com.bxt.picturebackend.model.enums.PictureReviewStatusEnum;
 import com.bxt.picturebackend.service.PictureService;
 import com.bxt.picturebackend.service.UserService;
+import com.bxt.picturebackend.vo.PictureAiSuggestVo;
 import com.bxt.picturebackend.vo.PictureTagCategory;
 import com.bxt.picturebackend.vo.PictureVo;
 import com.bxt.picturebackend.vo.UserLoginVo;
@@ -79,6 +81,8 @@ public class PictureController {
     private UserService userService;
     @Autowired
     private PictureService pictureService;
+    @Autowired
+    private DashScopeClient dashScopeClient;
     @Resource
     RabbitTemplate rabbitTemplate;
     @PostMapping("/upload/file")
@@ -135,13 +139,72 @@ public class PictureController {
         picture.setTags(JSONUtil.toJsonStr(pictureUpdateRequest.getTags()));
         picture.setEditTime(new Date());
         pictureService.validPicture(picture);
-        boolean result = pictureService.updateById(picture);
+        boolean result = pictureService.updatePictureShardingSafe(picture);
         if (!result) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片更新失败");
         }
         rabbitTemplate.convertAndSend(RabbitMQConfig.PICTURE_CACHE_INVALIDATE_QUEUE, pictureId);
         return ResultUtils.success(result);
     }
+
+    /**
+     * 根据 pictureId 调用 AI 分析图片内容，先识别爱豆姓名，再返回与爱豆相关的推荐 name 和 introduction（爱豆应援云图库）
+     */
+    @GetMapping("/aiSuggest")
+    public BaseResponse<PictureAiSuggestVo> aiSuggestNameAndIntroduction(@RequestParam Long pictureId, HttpServletRequest httpServletRequest) {
+        Picture picture = pictureService.getById(pictureId);
+        if (picture == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
+        }
+        String url = picture.getUrl();
+        if (cn.hutool.core.util.StrUtil.isBlank(url)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "该图片暂无有效地址，无法分析");
+        }
+        String prompt = "这是爱豆应援云图库中的一张图片。请按以下步骤回答，只返回一个 JSON 对象，不要其他说明。"
+                + "1) 先识别图片中出现的爱豆/明星姓名（艺人、偶像、演员、团体名等），若没有明显人物或无法识别则填「无」。"
+                + "2) 根据识别到的爱豆，推荐图片的中文名称（name）和一段简介（introduction），name 和 introduction 中尽量包含该爱豆名字、表情、穿搭、妆造或其它与应援相关的内容，语气应该包含激动的情绪；若未识别到爱豆，则根据图片内容给通用名称和简介。"
+                + "格式严格为：{\"idolName\":\"爱豆姓名或无\",\"name\":\"推荐图片名称\",\"introduction\":\"简介内容\"}";
+        String aiResponse;
+        try {
+            aiResponse = dashScopeClient.analyzeImage(url, prompt);
+        } catch (Exception e) {
+            log.warn("AI 分析图片失败 pictureId={}", pictureId, e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "AI 分析失败：" + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+        PictureAiSuggestVo vo = parseAiSuggestResponse(aiResponse);
+        return ResultUtils.success(vo);
+    }
+
+    /** 从 AI 返回文本中解析出 idolName、name、introduction（兼容 JSON 或带 markdown 的文本） */
+    private PictureAiSuggestVo parseAiSuggestResponse(String aiResponse) {
+        PictureAiSuggestVo vo = new PictureAiSuggestVo();
+        if (cn.hutool.core.util.StrUtil.isBlank(aiResponse)) {
+            vo.setIdolName("");
+            vo.setName("");
+            vo.setIntroduction("");
+            return vo;
+        }
+        String trimmed = aiResponse.trim();
+        try {
+            int start = trimmed.indexOf('{');
+            int end = trimmed.lastIndexOf('}');
+            if (start >= 0 && end > start) {
+                String json = trimmed.substring(start, end + 1);
+                PictureAiSuggestVo parsed = JSONUtil.toBean(json, PictureAiSuggestVo.class);
+                vo.setIdolName(parsed.getIdolName() != null ? parsed.getIdolName() : "");
+                vo.setName(parsed.getName() != null ? parsed.getName() : "");
+                vo.setIntroduction(parsed.getIntroduction() != null ? parsed.getIntroduction() : "");
+                return vo;
+            }
+        } catch (Exception e) {
+            log.debug("解析 AI 返回 JSON 失败，使用原文", e);
+        }
+        vo.setIdolName("");
+        vo.setName("");
+        vo.setIntroduction(trimmed.length() > 200 ? trimmed.substring(0, 200) : trimmed);
+        return vo;
+    }
+
     @PostMapping("/getPictureById")
     @AuthCheck(mustRole = UserConstant.ROLE_ADMIN)
     public BaseResponse<Picture> getPictureById(Long id, HttpServletRequest httpServletRequest) {

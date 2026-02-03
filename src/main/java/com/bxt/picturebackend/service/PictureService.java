@@ -72,4 +72,9 @@ public interface PictureService extends IService<Picture> {
 
     void incrUserUploadCount(Long userId);
 
+    /**
+     * 分库分表安全更新：仅更新非分片键字段，WHERE 带 id + userId，避免 ShardingSphere 报「Can not update sharding value」
+     */
+    boolean updatePictureShardingSafe(Picture picture);
+
 }

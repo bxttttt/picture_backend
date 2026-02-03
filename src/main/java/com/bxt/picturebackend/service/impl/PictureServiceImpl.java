@@ -648,7 +648,22 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 );
     }
 
-
+    @Override
+    public boolean updatePictureShardingSafe(Picture picture) {
+        if (picture == null || picture.getId() == null || picture.getUserId() == null) {
+            return false;
+        }
+        // 分库分表按 userId 分片，WHERE 必须带 id + userId；SET 中不能包含 userId，否则 ShardingSphere 报 20031
+        return this.lambdaUpdate()
+                .eq(Picture::getId, picture.getId())
+                .eq(Picture::getUserId, picture.getUserId())
+                .set(Picture::getName, picture.getName())
+                .set(Picture::getIntroduction, picture.getIntroduction())
+                .set(Picture::getCategory, picture.getCategory())
+                .set(Picture::getTags, picture.getTags())
+                .set(Picture::getEditTime, picture.getEditTime())
+                .update();
+    }
 
 }
 

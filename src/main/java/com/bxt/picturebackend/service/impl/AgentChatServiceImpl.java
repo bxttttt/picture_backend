@@ -7,10 +7,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.bxt.picturebackend.aliYunAi.ChatCompletionResponse;
 import com.bxt.picturebackend.aliYunAi.DashScopeClient;
 import com.bxt.picturebackend.constant.RedisKeyConstant;
+import com.bxt.picturebackend.constant.UserConstant;
 import com.bxt.picturebackend.dto.chat.ChatResponse;
 import com.bxt.picturebackend.dto.picture.PictureQueryRequest;
 import com.bxt.picturebackend.exception.BusinessException;
 import com.bxt.picturebackend.exception.ErrorCode;
+import com.bxt.picturebackend.mapper.PictureMapper;
 import com.bxt.picturebackend.model.entity.Picture;
 import com.bxt.picturebackend.model.entity.User;
 import com.bxt.picturebackend.model.enums.PictureReviewStatusEnum;
@@ -23,11 +25,13 @@ import com.bxt.picturebackend.vo.UserUploadRankVo;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.Date;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -35,7 +39,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AgentChatServiceImpl implements AgentChatService {
 
-    private static final String SYSTEM_PROMPT = "你是本图库平台的智能客服。你可以通过工具帮用户：1）按关键词或分类搜索图片；2）查看当前用户最近上传的图片；3）查看用户上传数量排行榜。请根据用户意图调用相应工具，然后根据工具返回结果用简洁自然的语言回复用户。若用户未登录却询问「我的上传」等，请提示先登录。";
+    private static final String SYSTEM_PROMPT = "你是本图库平台的智能客服。你可以通过工具帮用户：1）按关键词或分类搜索图片；2）查看当前用户最近上传的图片；3）查看用户上传数量排行榜；4）对指定图片进行分析（描述内容、主体、风格）；5）编辑用户自己的图片信息（名称 name、简介 introduction）。当用户说「修改图片名称」「改一下简介」「把图片 123 的名字改成 xxx」等并给出图片ID时，请调用 edit_picture 工具。仅图片所有者或管理员可编辑。若用户未登录却询问「我的上传」或要编辑图片，请提示先登录。";
     private static final int MAX_TOOL_ROUNDS = 5;
     private static final int SESSION_TTL_MINUTES = 30;
 
@@ -47,6 +51,10 @@ public class AgentChatServiceImpl implements AgentChatService {
     private UserService userService;
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+    @Autowired
+    private PictureMapper pictureMapper;
 
     @Override
     public ChatResponse chat(String message, String sessionId, HttpServletRequest request) {
@@ -145,6 +153,37 @@ public class AgentChatServiceImpl implements AgentChatService {
                         )
                 )
         ));
+        tools.add(Map.of(
+                "type", "function",
+                "function", Map.of(
+                        "name", "analyze_image",
+                        "description", "对指定图片进行视觉分析：描述内容、主体、风格，或回答用户关于图片的问题。当用户说「分析这张图」「这张图是什么」「描述图片」「图片里有什么」并给出图片ID时调用。",
+                        "parameters", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                        "picture_id", Map.of("type", "integer", "description", "图片ID，必填"),
+                                        "question", Map.of("type", "string", "description", "用户对图片的提问，可选；不传则默认描述图片内容、主体和风格")
+                                ),
+                                "required", List.of("picture_id")
+                        )
+                )
+        ));
+        tools.add(Map.of(
+                "type", "function",
+                "function", Map.of(
+                        "name", "edit_picture",
+                        "description", "编辑用户自己的图片信息（名称、简介）。仅图片所有者或管理员可编辑。当用户说「修改图片名称」「改简介」「把图片 123 的名字改成 xxx」等并给出图片ID时调用。",
+                        "parameters", Map.of(
+                                "type", "object",
+                                "properties", Map.of(
+                                        "picture_id", Map.of("type", "integer", "description", "图片ID，必填"),
+                                        "name", Map.of("type", "string", "description", "新的图片名称，可选"),
+                                        "introduction", Map.of("type", "string", "description", "新的图片简介，可选；最多 800 字")
+                                ),
+                                "required", List.of("picture_id")
+                        )
+                )
+        ));
         return tools;
     }
 
@@ -183,6 +222,10 @@ public class AgentChatServiceImpl implements AgentChatService {
                     return doGetMyRecentUploads(args, request);
                 case "get_upload_rank":
                     return doGetUploadRank(args);
+                case "analyze_image":
+                    return doAnalyzeImage(args);
+                case "edit_picture":
+                    return doEditPicture(args, request);
                 default:
                     return "未知工具: " + name;
             }
@@ -247,27 +290,107 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
         int limit = args.get("limit") != null ? ((Number) args.get("limit")).intValue() : 10;
         limit = Math.min(Math.max(limit, 1), 20);
-        PictureQueryRequest req = new PictureQueryRequest();
-        req.setCurrent(1);
-        req.setPageSize(limit);
-        req.setUserId(user.getId());
-        req.setReviewStatus(PictureReviewStatusEnum.APPROVED.getValue());
-        QueryWrapper<Picture> qw = pictureService.getQueryWrapper(req);
-        if (qw == null) {
-            return "您暂无已通过的上传图片。";
-        }
-        qw.eq("reviewStatus", PictureReviewStatusEnum.APPROVED.getValue());
+        // 直接按 userId 查库，不经过 getQueryWrapper，避免布隆过滤器导致返回 null 查不到
+        // 包含待审核与已通过的图片，方便用户看到自己上传的所有图
+        QueryWrapper<Picture> qw = new QueryWrapper<>();
+        qw.eq("userId", user.getId());
+        qw.in("reviewStatus", PictureReviewStatusEnum.PENDING.getValue(), PictureReviewStatusEnum.APPROVED.getValue());
         qw.orderByDesc("createTime");
         Page<Picture> page = pictureService.page(new Page<>(1, limit), qw);
         List<PictureVo> list = pictureService.getPictureVoPage(page, null).getRecords();
         if (list == null || list.isEmpty()) {
-            return "您最近没有已通过的上传图片。";
+            return "您最近没有上传的图片。";
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < list.size(); i++) {
             PictureVo p = list.get(i);
             sb.append(i + 1).append(". id=").append(p.getId()).append(" ").append(StrUtil.nullToEmpty(p.getName())).append("\n");
         }
+        return sb.toString();
+    }
+
+    private String doAnalyzeImage(Map<String, Object> args) {
+        Object picIdObj = args.get("picture_id");
+        if (picIdObj == null) {
+            return "请提供图片ID（picture_id）。";
+        }
+        long pictureId = ((Number) picIdObj).longValue();
+        Picture picture = pictureService.getById(pictureId);
+        if (picture == null) {
+            return "图片不存在，请检查图片ID。";
+        }
+        String url = picture.getUrl();
+        if (StrUtil.isBlank(url)) {
+            return "该图片暂无有效地址，无法分析。";
+        }
+        String question = (String) args.get("question");
+        try {
+            return dashScopeClient.analyzeImage(url, question);
+        } catch (Exception e) {
+            log.warn("图片分析失败 pictureId={}", pictureId, e);
+            return "图片分析暂时失败，请稍后再试。原因：" + e.getMessage();
+        }
+    }
+
+    private String doEditPicture(Map<String, Object> args, HttpServletRequest request) {
+        UserLoginVo loginUser;
+        try {
+            loginUser = userService.getCurrentUser(request);
+        } catch (Exception e) {
+            return "请先登录后再编辑图片。";
+        }
+        if (loginUser == null || loginUser.getId() == null) {
+            return "请先登录后再编辑图片。";
+        }
+        Object picIdObj = args.get("picture_id");
+        if (picIdObj == null) {
+            return "请提供图片ID（picture_id）。";
+        }
+        long pictureId = ((Number) picIdObj).longValue();
+        Picture picture = pictureService.getById(pictureId);
+        if (picture == null) {
+            return "图片不存在，请检查图片ID。";
+        }
+        boolean isAdmin = UserConstant.ROLE_ADMIN.equals(loginUser.getUserRole());
+        boolean isOwner = picture.getUserId() != null && picture.getUserId().equals(loginUser.getId());
+        if (!isAdmin && !isOwner) {
+            return "无权限修改该图片，仅图片所有者或管理员可编辑。";
+        }
+        String name = (String) args.get("name");
+        String introduction = (String) args.get("introduction");
+        if (StrUtil.isNotBlank(name)) {
+            picture.setName(name);
+        }
+        if (introduction != null) {
+            picture.setIntroduction(introduction);
+        }
+        try {
+            pictureService.validPicture(picture);
+        } catch (BusinessException e) {
+            return "校验失败：" + e.getMessage();
+        }
+        // 分库分表按 userId 分片，WHERE 必须带 id + userId 才能正确路由；用 Mapper 显式 SQL 保证路由
+        Long userId = picture.getUserId();
+        String nameToSet = StrUtil.isNotBlank(name) ? name : null;
+        try {
+            int rows = pictureMapper.updateNameAndIntroductionByIdAndUserId(
+                    pictureId, userId, nameToSet, introduction, new Date());
+            if (rows <= 0) {
+                return "更新失败，请稍后再试。";
+            }
+        } catch (Exception e) {
+            log.error("编辑图片失败 pictureId={} userId={} ex={}", pictureId, userId, e.getClass().getName(), e);
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            if (msg.contains("sharding") || msg.contains("20031") || msg.contains("分库分表") || msg.contains("分片")) {
+                return "更新失败：分库分表限制（请确认 Mapper XML 已加载且 SET 中未包含 userId）。详情：" + msg;
+            }
+            return "更新失败：" + msg;
+        }
+        rabbitTemplate.convertAndSend("picture.cache.invalidate.queue", pictureId);
+        StringBuilder sb = new StringBuilder("已更新图片信息。");
+        if (StrUtil.isNotBlank(name)) sb.append(" 名称：").append(name);
+        if (introduction != null) sb.append(" 简介：").append(introduction.length() > 50 ? introduction.substring(0, 50) + "…" : introduction);
+        if (StrUtil.isBlank(name) && introduction == null) sb.append("（未传入要修改的 name 或 introduction）");
         return sb.toString();
     }
 

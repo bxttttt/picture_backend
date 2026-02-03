@@ -1,5 +1,6 @@
 package com.bxt.picturebackend.aliYunAi;
 
+import cn.hutool.core.util.StrUtil;
 import com.bxt.picturebackend.config.AliyunAiConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.*;
@@ -117,6 +118,48 @@ public class DashScopeClient {
                 throw new RuntimeException("DashScope 返回无 choices");
             }
             return parsed.getChoices().get(0).getMessage();
+        }
+    }
+
+    /**
+     * 图片分析（多模态视觉理解）：根据图片 URL 和用户问题，返回对图片的描述或回答
+     *
+     * @param imageUrl   图片可公网访问的 URL
+     * @param userPrompt 用户问题，如「描述这张图」「图中有什么」「什么风格」
+     * @return 模型对图片的分析/描述文本
+     */
+    public String analyzeImage(String imageUrl, String userPrompt) throws Exception {
+        String apiKey = aliyunAiConfig.getApiKey();
+        List<Map<String, Object>> content = List.of(
+                Map.of("type", "image_url", "image_url", Map.of("url", imageUrl)),
+                Map.of("type", "text", "text", StrUtil.isNotBlank(userPrompt) ? userPrompt : "请描述这张图片的内容、主体和风格。")
+        );
+        Map<String, Object> userMessage = Map.of("role", "user", "content", content);
+        Map<String, Object> body = Map.of(
+                "model", "qwen-vl-plus",
+                "messages", List.of(userMessage)
+        );
+        String json = mapper.writeValueAsString(body);
+        RequestBody requestBody = RequestBody.create(json, MediaType.parse("application/json"));
+        Request httpRequest = new Request.Builder()
+                .url(CHAT_COMPLETIONS_URL)
+                .addHeader("Authorization", "Bearer " + apiKey)
+                .addHeader("Content-Type", "application/json")
+                .post(requestBody)
+                .build();
+
+        try (Response response = client.newCall(httpRequest).execute()) {
+            if (!response.isSuccessful()) {
+                String err = response.body() != null ? response.body().string() : response.message();
+                throw new RuntimeException("图片分析请求失败: " + response.code() + " " + err);
+            }
+            String responseBody = response.body() != null ? response.body().string() : "{}";
+            ChatCompletionResponse parsed = mapper.readValue(responseBody, ChatCompletionResponse.class);
+            if (parsed.getChoices() == null || parsed.getChoices().isEmpty()) {
+                throw new RuntimeException("图片分析返回无内容");
+            }
+            String text = parsed.getChoices().get(0).getMessage().getContent();
+            return text != null ? text : "无法解析图片内容。";
         }
     }
 }

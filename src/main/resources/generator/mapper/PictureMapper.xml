@@ -37,4 +37,15 @@
         reviewStatus,reviewReason,reviewTime,reviewUserId,thumbnailUrl,
         picColor,spaceId
     </sql>
+
+    <!-- 分库分表按 userId 分片，WHERE 必须带 id + userId 才能正确路由 -->
+    <update id="updateNameAndIntroductionByIdAndUserId">
+        UPDATE picture
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="introduction != null">introduction = #{introduction},</if>
+            editTime = #{editTime}
+        </set>
+        WHERE id = #{id} AND userId = #{userId}
+    </update>
 </mapper>
